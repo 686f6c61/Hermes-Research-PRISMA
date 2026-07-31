@@ -1,0 +1,5 @@
+*
+!.dockerignore
+!Dockerfile.research
+!build/
+!build/security-constraints.txt

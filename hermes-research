@@ -1,0 +1,914 @@
+#!/usr/bin/env python3
+"""Public command wrapper for Hermes Research Pack.
+
+This wrapper turns the current package into a small product surface instead of
+forcing users to remember individual internal scripts. The implementation stays
+thin on purpose: each subcommand delegates to the real Hermes research scripts
+that already power the local system.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import csv
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Iterable
+
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
+ENV_PATH = PACKAGE_ROOT / ".env"
+SEEDED_HERMES_HOME = PACKAGE_ROOT / "seed" / "hermes-home"
+
+
+def load_package_env() -> dict[str, str]:
+    """Load .env values without depending on external parsing libraries.
+
+    The public package needs to work on a clean machine, so this parser only
+    supports the simple KEY=VALUE shape used by the distribution bundle.
+    """
+
+    process_env = os.environ.copy()
+    env: dict[str, str] = {}
+    if not ENV_PATH.exists():
+        return process_env
+
+    for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        value = raw_value.strip()
+        if not key:
+            continue
+        if value[:1] in {"'", '"'} and value[-1:] == value[:1]:
+            try:
+                value = ast.literal_eval(value)
+            except Exception:
+                value = value[1:-1]
+        env[key] = value
+    # Explicit process variables are the safest way to make a temporary,
+    # non-persistent override and follow standard Twelve-Factor precedence.
+    env.update(process_env)
+    return env
+
+
+def package_path(raw_path: str, env: dict[str, str]) -> Path:
+    """Resolve package-relative paths the same way docker-compose does."""
+
+    value = raw_path
+    if not value:
+        raise ValueError("Path value is empty")
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return (PACKAGE_ROOT / path).resolve()
+
+
+def workspace_root(env: dict[str, str]) -> Path:
+    """Return the host-side workspace path used by the public package."""
+
+    return package_path(env.get("HERMES_WORKSPACE_DIR", "./runtime/workspace"), env)
+
+
+def prisma_script(*parts: str) -> Path:
+    """Locate a PRISMA research script inside the bundled Hermes seed."""
+
+    return SEEDED_HERMES_HOME / "skills" / "research" / "prisma-systematic-review" / "scripts" / Path(*parts)
+
+
+def prisma_status_script() -> Path:
+    """Locate the bundled PRISMA status helper."""
+
+    return SEEDED_HERMES_HOME / "skills" / "research" / "prisma-status" / "scripts" / "review_status.py"
+
+
+def ensure_exists(path: Path, label: str) -> None:
+    """Fail fast with a user-facing message when a required file is missing."""
+
+    if not path.exists():
+        raise SystemExit(f"Missing {label}: {path}")
+
+
+def run_command(command: list[str], *, env: dict[str, str], cwd: Path | None = None) -> int:
+    """Run a foreground command while streaming output to the terminal."""
+
+    completed = subprocess.run(command, cwd=str(cwd) if cwd else None, env=env, check=False)
+    return completed.returncode
+
+
+def is_truthy(value: str | None) -> bool:
+    """Interpret public yes/no style values with a generous truthy set."""
+
+    normalized = (value or "").strip().lower()
+    return normalized not in {"", "no", "n", "false", "0", "off"}
+
+
+def bundle_container_name(env: dict[str, str]) -> str | None:
+    """Return the public Hermes container name when it matches this bundle.
+
+    The public wrapper should prefer the running Docker runtime for heavy PRISMA
+    work. That keeps host-side dependencies small and makes the package behave
+    more like a product than a loose pile of local scripts.
+    """
+
+    data_dir = package_path(env.get("HERMES_DATA_DIR", "./runtime/hermes-home"), env).resolve()
+    workspace_dir = workspace_root(env).resolve()
+    container_name = env.get("HERMES_CONTAINER_NAME", "hermes-agent").strip() or "hermes-agent"
+    inspected = subprocess.run(
+        ["docker", "inspect", container_name],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if inspected.returncode != 0:
+        return None
+    try:
+        payload = json.loads(inspected.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not payload:
+        return None
+    container = payload[0]
+    if not container.get("State", {}).get("Running"):
+        return None
+    mounts = container.get("Mounts", [])
+    mapped = {item.get("Destination"): Path(item.get("Source", "")).resolve() for item in mounts}
+    if mapped.get("/opt/data") != data_dir:
+        return None
+    if mapped.get("/workspace") != workspace_dir:
+        return None
+    return container_name
+
+
+def container_review_dir(review_dir: Path, env: dict[str, str]) -> str:
+    """Map a host review path to the mounted /workspace path inside the runtime."""
+
+    relative = review_dir.resolve().relative_to(workspace_root(env).resolve())
+    return str(Path("/workspace") / relative)
+
+
+def container_prisma_script(*parts: str) -> str:
+    """Locate a PRISMA research script inside the seeded runtime mount."""
+
+    return str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts" / Path(*parts))
+
+
+def latest_review_dir(root: Path) -> Path | None:
+    """Pick the most recently modified review directory as a safe fallback."""
+
+    reviews = [
+        child
+        for child in root.iterdir()
+        if child.is_dir() and child.name.startswith("systematic-review") and child.name != "systematic-review-template"
+    ]
+    if not reviews:
+        return None
+    reviews.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return reviews[0]
+
+
+def resolve_review_dir(review: str | None, env: dict[str, str]) -> Path:
+    """Resolve either an explicit review path/name or the latest workspace review."""
+
+    root = workspace_root(env)
+    if review:
+        candidate = Path(review).expanduser()
+        if candidate.exists():
+            return candidate.resolve()
+        candidate = root / review
+        if candidate.exists():
+            return candidate.resolve()
+        raise SystemExit(f"Review not found: {review}")
+
+    latest = latest_review_dir(root)
+    if latest is None:
+        raise SystemExit("No review directory was found in the configured workspace")
+    return latest.resolve()
+
+
+def csv_has_data_rows(path: Path) -> bool:
+    """Return True when a CSV contains at least one non-empty data row.
+
+    The public template ships header-only CSV placeholders so humans can see the
+    expected artifact shape. For pipeline routing, header-only files must still
+    count as "empty" or a fresh review will incorrectly skip the real search
+    bootstrap and jump into later stages with no corpus.
+    """
+
+    if not path.exists() or not path.is_file():
+        return False
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            next(reader, None)  # Skip the header row if present.
+            for row in reader:
+                if any((cell or "").strip() for cell in row):
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def build_pipeline_command(
+    review_dir: Path,
+    *,
+    skip_publication_layer: bool,
+    target_review_dir: str | None = None,
+    target_script_root: str | None = None,
+) -> list[str]:
+    """Choose the safest pipeline path for the current review state.
+
+    Fresh reviews created by the deterministic public bootstrap may only have the
+    protocol and runtime files. In that case we need the topic bootstrap before
+    the full pipeline. Reviews that already have search/record material can jump
+    straight into complete_review.py.
+    """
+
+    topic_bootstrap = prisma_script("bootstrap_topic_review.py")
+    complete_review = prisma_script("complete_review.py")
+    ensure_exists(topic_bootstrap, "topic bootstrap script")
+    ensure_exists(complete_review, "complete review script")
+    review_arg = target_review_dir or str(review_dir)
+    topic_bootstrap_arg = (
+        str(Path(target_script_root) / "bootstrap_topic_review.py")
+        if target_script_root
+        else str(topic_bootstrap)
+    )
+    complete_review_arg = (
+        str(Path(target_script_root) / "complete_review.py")
+        if target_script_root
+        else str(complete_review)
+    )
+
+    search_log = review_dir / "searches" / "search-log.csv"
+    master_records = review_dir / "records" / "master-records.csv"
+    needs_bootstrap = not (csv_has_data_rows(search_log) and csv_has_data_rows(master_records))
+
+    if needs_bootstrap:
+        chain = (
+            f"python3 -u {shlex.quote(topic_bootstrap_arg)} {shlex.quote(review_arg)} "
+            f"&& python3 -u {shlex.quote(complete_review_arg)} "
+        )
+        if skip_publication_layer:
+            chain += "--skip-publication-layer "
+        chain += shlex.quote(review_arg)
+        return ["bash", "-c", chain]
+
+    command = ["python3", "-u", complete_review_arg]
+    if skip_publication_layer:
+        command.append("--skip-publication-layer")
+    command.append(review_arg)
+    return command
+
+
+def prompt_text(prompt: str, *, default: str = "", required: bool = False) -> str:
+    """Prompt for one field in the interactive intake wizard."""
+
+    suffix = f" [{default}]" if default else ""
+    while True:
+        value = input(f"{prompt}{suffix}: ").strip()
+        if value:
+            return value
+        if default:
+            return default
+        if not required:
+            return ""
+        print("This field is required.")
+
+
+def validate_final_n(value: object) -> str:
+    """Validate an exact final N or an inclusive range such as 23-63."""
+
+    normalized = str(value).strip().replace("–", "-").replace("—", "-")
+    match = re.fullmatch(r"(\d+)(?:\s*-\s*(\d+))?", normalized)
+    if not match:
+        raise SystemExit("Final N must be a positive integer or a range such as 23-63")
+    lower = int(match.group(1))
+    upper = int(match.group(2) or match.group(1))
+    if lower < 1 or upper < lower:
+        raise SystemExit("Final N range must be positive and ordered from minimum to maximum")
+    return str(lower) if lower == upper else f"{lower}-{upper}"
+
+
+def collect_init_payload(args: argparse.Namespace) -> dict[str, str]:
+    """Collect the public intake either from flags or from an interactive wizard."""
+
+    required_missing = [
+        label for label, value in (
+            ("topic", args.topic),
+            ("years", args.years),
+            ("include", args.include),
+            ("exclude", args.exclude),
+        )
+        if not (value or "").strip()
+    ]
+
+    if required_missing:
+        if not sys.stdin.isatty():
+            missing = ", ".join(required_missing)
+            raise SystemExit(
+                "Missing required intake fields: "
+                f"{missing}. Run `./hermes-research init` in a terminal for the guided wizard "
+                "or pass the flags explicitly."
+            )
+
+        print("Hermes Research guided intake")
+        print("Answer the four required fields first. Press Enter to accept defaults on optional fields.\n")
+        args.topic = prompt_text("Topic", required=True)
+        args.question = args.question or prompt_text("Research question (optional)")
+        args.years = prompt_text("Year or year range", default="2025-2026", required=True)
+        args.include = prompt_text("Inclusion criteria", required=True)
+        args.exclude = prompt_text("Exclusion criteria", required=True)
+        args.authors = args.authors or prompt_text("Author filter (optional)")
+        args.from_date = args.from_date or prompt_text("Exact start date YYYY-MM-DD (optional)")
+        args.to_date = args.to_date or prompt_text("Exact end date YYYY-MM-DD (optional)")
+        args.autonomous = prompt_text("Autonomous mode", default=args.autonomous or "sí")
+        final_n_value = prompt_text("Target final N", default=str(args.final_n or 37))
+        args.final_n = validate_final_n(final_n_value)
+        args.outlet = args.outlet or prompt_text("Target outlet", default="generic-common-core")
+        args.representativeness = args.representativeness or prompt_text("Representativeness rule (optional)")
+        args.target_length = args.target_length or prompt_text("Target manuscript length (optional)")
+    else:
+        args.final_n = validate_final_n(args.final_n)
+
+    return {
+        "topic": args.topic,
+        "research_question": args.question or "",
+        "year_or_years": args.years,
+        "from_date": args.from_date or "",
+        "to_date": args.to_date or "",
+        "inclusion_criteria": args.include,
+        "exclusion_criteria": args.exclude,
+        "author_filters": args.authors or "",
+        "autonomous_mode": args.autonomous,
+        "final_n": str(args.final_n),
+        "representativeness": args.representativeness or "",
+        "target_outlet": args.outlet or "generic-common-core",
+        "target_length": args.target_length or "",
+    }
+
+
+def render_init_summary(
+    summary: dict[str, object],
+    review_dir: Path,
+    *,
+    background_started: bool,
+    pid_label: str,
+) -> str:
+    """Return a human-readable init summary for the public CLI."""
+
+    lines = [
+        f"I created the review `{summary['review_name']}` and materialized the initial protocol.",
+        "",
+        "Artifacts created",
+        "- `protocol/intake.md`",
+        "- `protocol/research-question.md`",
+        "- `protocol/eligibility-criteria.md`",
+        "- `protocol/search-strategy.md`",
+        "- `notes/runtime-state.json`",
+        "",
+        f"Status: `{summary['status']}`",
+        f"Next phase: `{summary['next_phase']}`",
+        f"Next action: {summary['next_action']}",
+    ]
+    if background_started:
+        lines.extend(
+            [
+                "",
+                "Hermes is already continuing the review in the background.",
+                f"- PID marker: `{review_dir / 'notes' / f'{pid_label}.pid'}`",
+                f"- Log: `{review_dir / 'notes' / 'run.log'}`",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "Autonomous continuation is off, so the review is waiting at the protocol stage.",
+                f"Run `./hermes-research resume {review_dir.name}` to continue it.",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
+def launch_background(command: list[str], *, env: dict[str, str], review_dir: Path, label: str) -> int:
+    """Start a background review command and persist a small PID marker."""
+
+    notes_dir = review_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    log_path = notes_dir / "run.log"
+    pid_path = notes_dir / f"{label}.pid"
+    with log_path.open("a", encoding="utf-8") as log_handle:
+        proc = subprocess.Popen(  # noqa: S603
+            command,
+            cwd=str(review_dir.parent),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+            close_fds=True,
+        )
+    pid_path.write_text(
+        json.dumps(
+            {
+                "pid": proc.pid,
+                "command": command,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"Started background process for {review_dir.name} (PID {proc.pid})")
+    print(f"Log: {log_path}")
+    return 0
+
+
+def run_in_container(command: list[str], *, env: dict[str, str], cwd: Path | None = None) -> int:
+    """Run a foreground command inside the bundle's Docker runtime."""
+
+    container = bundle_container_name(env)
+    if not container:
+        raise SystemExit("The public runtime container is not available for this command")
+    container_command = ["docker", "exec"]
+    if cwd:
+        container_command.extend(["-w", str(cwd)])
+    container_command.append(container)
+    container_command.extend(command)
+    return run_command(container_command, env=env)
+
+
+def launch_background_in_container(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    review_dir: Path,
+    label: str,
+    container_review_dir_path: str,
+) -> int:
+    """Start a background PRISMA command inside the running Docker runtime.
+
+    This path is the safest public behavior when the bundle runtime is already
+    up, because it avoids leaking image dependencies such as SVG rendering tools
+    onto the user's host machine.
+    """
+
+    container = bundle_container_name(env)
+    if not container:
+        raise SystemExit("The public runtime container is not available for this command")
+
+    notes_dir = review_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    log_path = notes_dir / "run.log"
+    pid_path = notes_dir / f"{label}.pid"
+    container_pid_path = f"{container_review_dir_path}/notes/{label}.container.pid"
+    quoted_command = " ".join(shlex.quote(part) for part in command)
+    shell_command = (
+        f"mkdir -p {shlex.quote(container_review_dir_path)}/notes && "
+        f"nohup {quoted_command} >> {shlex.quote(container_review_dir_path)}/notes/run.log 2>&1 & "
+        f"echo $! > {shlex.quote(container_pid_path)}"
+    )
+    result = subprocess.run(
+        ["docker", "exec", container, "sh", "-c", shell_command],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(result.stderr or result.stdout or "Failed to launch the background container command")
+    pid_path.write_text(
+        json.dumps(
+            {
+                "pid": None,
+                "transport": "docker-exec",
+                "container": container,
+                "container_pid_file": container_pid_path,
+                "command": command,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"Started background process for {review_dir.name} inside {container}")
+    print(f"Log: {log_path}")
+    return 0
+
+
+def command_doctor(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the public package installation checks."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "doctor.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_setup(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the secret-safe installation wizard."""
+
+    command = ["bash", str(PACKAGE_ROOT / "scripts" / "setup.sh")]
+    if args.non_interactive:
+        command.append("--non-interactive")
+    return run_command(command, env=env, cwd=PACKAGE_ROOT)
+
+
+def compose_command(arguments: list[str], env: dict[str, str]) -> int:
+    """Run Docker Compose against the package's only public compose file."""
+
+    return run_command(
+        ["docker", "compose", "-f", str(PACKAGE_ROOT / "docker-compose.research.yml"), *arguments],
+        env=env,
+        cwd=PACKAGE_ROOT,
+    )
+
+
+def command_up(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Build and start the public runtime."""
+
+    doctor_result = command_doctor(args, env)
+    if doctor_result != 0:
+        return doctor_result
+    command = ["up", "-d", "--build"]
+    if not args.without_docling:
+        command[0:0] = ["--profile", "docling"]
+    return compose_command(command, env)
+
+
+def command_down(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Stop containers without deleting bind-mounted research data."""
+
+    return compose_command(["--profile", "docling", "down"], env)
+
+
+def command_logs(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Follow bounded runtime logs."""
+
+    command = ["--profile", "docling", "logs", "--tail", str(args.tail)]
+    if args.follow:
+        command.append("--follow")
+    return compose_command(command, env)
+
+
+def command_smoke_test(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the public package smoke test."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "smoke-test.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_multimodal_test(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Verify image and PDF reading inside the active Docker runtime."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "multimodal-test.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_docling_test(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Validate structured extraction for digital, tabular, and scanned PDFs."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "docling-test.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_cleanroom_validate(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run a clean-room validation of the distributable bundle."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "cleanroom-validate.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_release_bundle(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Build a sanitized distributable ZIP of the public package."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "release-bundle.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_verify_release(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Verify the latest or selected release ZIP in a fresh temporary folder."""
+
+    command = ["bash", str(PACKAGE_ROOT / "scripts" / "verify-release-zip.sh")]
+    if args.zip_path:
+        command.append(args.zip_path)
+    return run_command(command, env=env, cwd=PACKAGE_ROOT)
+
+
+def command_ship_release(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the maintainer release pipeline end to end."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "ship-release.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_init(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Create a new review from a small public-facing intake."""
+
+    script = prisma_script("bootstrap_public_intake.py")
+    ensure_exists(script, "public intake bootstrap script")
+    payload = collect_init_payload(args)
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False)
+        intake_json = handle.name
+
+    try:
+        result = subprocess.run(
+            [
+                "python3",
+                str(script),
+                "--workspace-root",
+                str(workspace_root(env)),
+                "--intake-json",
+                intake_json,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+    finally:
+        Path(intake_json).unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr or result.stdout or "init failed\n")
+        return result.returncode
+
+    summary = json.loads((result.stdout or "").strip().splitlines()[-1])
+    review_dir = Path(str(summary["review_dir"])).resolve()
+    background_started = False
+    pid_label = "public-autonomous"
+    if is_truthy(str(summary.get("autonomous_mode", ""))):
+        container_name = bundle_container_name(env)
+        command = build_pipeline_command(
+            review_dir,
+            skip_publication_layer=False,
+            target_review_dir=container_review_dir(review_dir, env) if container_name else None,
+            target_script_root=(
+                str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts")
+                if container_name
+                else None
+            ),
+        )
+        if container_name:
+            launch_background_in_container(
+                command,
+                env=env,
+                review_dir=review_dir,
+                label=pid_label,
+                container_review_dir_path=container_review_dir(review_dir, env),
+            )
+        else:
+            launch_background(command, env=env, review_dir=review_dir, label=pid_label)
+        background_started = True
+
+    sys.stdout.write(
+        render_init_summary(
+            summary,
+            review_dir,
+            background_started=background_started,
+            pid_label=pid_label,
+        )
+    )
+    return 0
+
+
+def command_status(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Print the current status for one review or for the latest workspace review."""
+
+    script = prisma_status_script()
+    ensure_exists(script, "PRISMA status script")
+    command = [
+        "python3",
+        str(script),
+        "--workspace-root",
+        str(workspace_root(env)),
+        "--format",
+        args.format,
+    ]
+    if args.review:
+        command.insert(2, str(resolve_review_dir(args.review, env)))
+    return run_command(command, env=env)
+
+
+def command_run(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the PRISMA pipeline for a review in foreground or background."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_name(env)
+    if container_name:
+        command = build_pipeline_command(
+            review_dir,
+            skip_publication_layer=args.skip_publication_layer,
+            target_review_dir=container_review_dir(review_dir, env),
+            target_script_root=str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts"),
+        )
+    else:
+        command = build_pipeline_command(review_dir, skip_publication_layer=args.skip_publication_layer)
+    if args.background:
+        if container_name:
+            return launch_background_in_container(
+                command,
+                env=env,
+                review_dir=review_dir,
+                label="cli-run",
+                container_review_dir_path=container_review_dir(review_dir, env),
+            )
+        return launch_background(command, env=env, review_dir=review_dir, label="cli-run")
+    if container_name:
+        return run_in_container(command, env=env, cwd=Path("/workspace"))
+    return run_command(command, env=env, cwd=review_dir.parent)
+
+
+def command_resume(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Resume the review pipeline, defaulting to background mode."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_name(env)
+    if container_name:
+        command = build_pipeline_command(
+            review_dir,
+            skip_publication_layer=args.skip_publication_layer,
+            target_review_dir=container_review_dir(review_dir, env),
+            target_script_root=str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts"),
+        )
+    else:
+        command = build_pipeline_command(review_dir, skip_publication_layer=args.skip_publication_layer)
+    if args.foreground:
+        if container_name:
+            return run_in_container(command, env=env, cwd=Path("/workspace"))
+        return run_command(command, env=env, cwd=review_dir.parent)
+    if container_name:
+        return launch_background_in_container(
+            command,
+            env=env,
+            review_dir=review_dir,
+            label="cli-resume",
+            container_review_dir_path=container_review_dir(review_dir, env),
+        )
+    return launch_background(command, env=env, review_dir=review_dir, label="cli-resume")
+
+
+def command_package(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Refresh the final bundle for a prepared review."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_name(env)
+    container_dir = container_review_dir(review_dir, env) if container_name else ""
+    package_script = prisma_script("package_publication_bundle.py")
+    ensure_exists(package_script, "publication bundle script")
+
+    if args.autopilot:
+        autopilot_script = prisma_script("publication_autopilot.py")
+        ensure_exists(autopilot_script, "publication autopilot script")
+        autopilot_command = (
+            ["python3", container_prisma_script("publication_autopilot.py"), container_dir]
+            if container_name
+            else ["python3", str(autopilot_script), str(review_dir)]
+        )
+        returncode = run_in_container(autopilot_command, env=env, cwd=Path("/workspace")) if container_name else run_command(
+            autopilot_command,
+            env=env,
+            cwd=review_dir.parent,
+        )
+        if returncode != 0:
+            return returncode
+
+    package_command = (
+        ["python3", container_prisma_script("package_publication_bundle.py"), container_dir]
+        if container_name
+        else ["python3", str(package_script), str(review_dir)]
+    )
+    if container_name:
+        return run_in_container(package_command, env=env, cwd=Path("/workspace"))
+    return run_command(
+        package_command,
+        env=env,
+        cwd=review_dir.parent,
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the public CLI surface for the research package."""
+
+    parser = argparse.ArgumentParser(
+        prog="hermes-research",
+        description="Public command wrapper for Hermes Research Pack",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    setup = subparsers.add_parser("setup", help="Configure provider, models, and optional Telegram access")
+    setup.add_argument("--non-interactive", action="store_true", help="Read every value from environment variables")
+    setup.set_defaults(func=command_setup)
+
+    doctor = subparsers.add_parser("doctor", help="Validate the installation")
+    doctor.set_defaults(func=command_doctor)
+
+    up = subparsers.add_parser("up", help="Build and start Hermes Research")
+    up.add_argument("--without-docling", action="store_true", help="Start without structured PDF extraction")
+    up.set_defaults(func=command_up)
+
+    down = subparsers.add_parser("down", help="Stop Hermes Research without deleting reviews")
+    down.set_defaults(func=command_down)
+
+    logs = subparsers.add_parser("logs", help="Show runtime logs")
+    logs.add_argument("--tail", type=int, default=200, help="Number of lines per service")
+    logs.add_argument("--follow", action="store_true", help="Continue following new log lines")
+    logs.set_defaults(func=command_logs)
+
+    smoke = subparsers.add_parser("smoke-test", help="Run the public smoke test")
+    smoke.set_defaults(func=command_smoke_test)
+
+    multimodal = subparsers.add_parser(
+        "multimodal-test",
+        help="Verify PDF extraction, page rendering, and visual model reading",
+    )
+    multimodal.set_defaults(func=command_multimodal_test)
+
+    docling = subparsers.add_parser(
+        "docling-test",
+        help="Validate structured PDF, table, figure, and OCR extraction",
+    )
+    docling.set_defaults(func=command_docling_test)
+
+    cleanroom = subparsers.add_parser("cleanroom-validate", help="Validate a fresh clean-room copy of the bundle")
+    cleanroom.set_defaults(func=command_cleanroom_validate)
+
+    release = subparsers.add_parser("release-bundle", help="Create a sanitized distributable ZIP")
+    release.set_defaults(func=command_release_bundle)
+
+    verify_release = subparsers.add_parser("verify-release", help="Verify the latest release ZIP in a temporary folder")
+    verify_release.add_argument("zip_path", nargs="?", help="Optional explicit ZIP path to verify")
+    verify_release.set_defaults(func=command_verify_release)
+
+    ship_release = subparsers.add_parser("ship-release", help="Sync, package, and verify a full release artifact")
+    ship_release.set_defaults(func=command_ship_release)
+
+    init = subparsers.add_parser("init", help="Create a new review from a small intake")
+    init.add_argument("--topic", help="Review topic")
+    init.add_argument("--years", help="Year or year range, e.g. 2025-2026")
+    init.add_argument("--include", help="Inclusion criteria")
+    init.add_argument("--exclude", help="Exclusion criteria")
+    init.add_argument("--question", help="Optional research question")
+    init.add_argument("--from-date", help="Optional exact start date (YYYY-MM-DD)")
+    init.add_argument("--to-date", help="Optional exact end date (YYYY-MM-DD)")
+    init.add_argument("--authors", help="Optional author filter")
+    init.add_argument("--autonomous", default="sí", help="Autonomous mode flag (default: sí)")
+    init.add_argument(
+        "--final-n",
+        default="37",
+        help="Exact or ranged final N, e.g. 37 or 23-63 (default: 37)",
+    )
+    init.add_argument("--outlet", default="generic-common-core", help="Target outlet (default: generic-common-core)")
+    init.add_argument("--representativeness", help="Optional representativeness rule")
+    init.add_argument("--target-length", help="Optional target manuscript length")
+    init.set_defaults(func=command_init)
+
+    status = subparsers.add_parser("status", help="Show the status of a review")
+    status.add_argument("review", nargs="?", help="Optional review path or name")
+    status.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    status.set_defaults(func=command_status)
+
+    run = subparsers.add_parser("run", help="Run a review pipeline")
+    run.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    run.add_argument("--background", action="store_true", help="Launch the pipeline in the background")
+    run.add_argument(
+        "--skip-publication-layer",
+        action="store_true",
+        help="Run only the PRISMA/extraction pipeline",
+    )
+    run.set_defaults(func=command_run)
+
+    resume = subparsers.add_parser("resume", help="Resume a review pipeline")
+    resume.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    resume.add_argument("--foreground", action="store_true", help="Run in the foreground instead of the background")
+    resume.add_argument(
+        "--skip-publication-layer",
+        action="store_true",
+        help="Run only the PRISMA/extraction pipeline",
+    )
+    resume.set_defaults(func=command_resume)
+
+    package = subparsers.add_parser("package", help="Refresh the final publication bundle")
+    package.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    package.add_argument("--autopilot", action="store_true", help="Run publication_autopilot.py before packaging")
+    package.set_defaults(func=command_package)
+
+    return parser
+
+
+def main(argv: Iterable[str] | None = None) -> int:
+    """Parse arguments, load the package environment, and dispatch the command."""
+
+    parser = build_parser()
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    env = load_package_env()
+    return int(args.func(args, env))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

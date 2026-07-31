@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/686f6c61/Hermes-Research-PRISMA/security/advisories/new
+    about: Report vulnerabilities privately. Never include secrets in a public issue.
+  - name: Installation documentation
+    url: https://hermes-prisma.686f6c61.dev/instalacion.html
+    about: Follow the public installation and first-review guide.

@@ -1,0 +1,7 @@
+mode,label,framework,question,sources_n,axes_n,appraisal_n,tables_min_n,figures_min_n,outputs_n,red_flags_n,score_weights,status,issues
+biomedical,Modo biomédico,PICO/PICOS,"¿La revisión pertenece a salud, clínica, biomedicina o epidemiología y debe formularse con PICO/PICOS?",6,6,6,5,3,4,4,0.35/0.40/0.25,PASS,
+technical,Modo técnico,Sistema-tarea-benchmark-metrica,"¿La revisión compara sistemas técnicos, arquitecturas, modelos, datasets, benchmarks o métricas?",6,6,3,5,3,4,4,0.50/0.35/0.15,PASS,
+social_sciences,Modo ciencias sociales,SPIDER/PEO/PICo,"¿La revisión estudia fenómenos, constructos, actores, contextos, teorías o mecanismos sociales?",5,7,6,5,3,4,4,0.30/0.45/0.25,PASS,
+education,Modo educación,SPIDER/PEO educativo,"¿La revisión se centra en aprendizaje, docencia, profesorado, estudiantes, evaluación, feedback o instituciones educativas?",6,7,5,5,3,4,4,0.32/0.43/0.25,PASS,
+management,Modo management,CIMO/TCCM,"¿La revisión pertenece a management, estrategia, organizaciones, liderazgo, gobierno corporativo, innovación o desempeño empresarial?",5,7,7,5,3,4,4,0.33/0.42/0.25,PASS,
+mixed,Modo mixto,marco compuesto,¿La revisión combina más de un campo y necesitas declarar cuál es el modo principal y cuáles son secundarios?,5,6,4,5,3,4,4,0.35/0.40/0.25,PASS,

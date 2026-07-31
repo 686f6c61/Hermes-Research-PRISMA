@@ -1,0 +1,85 @@
+[
+  {
+    "name": "academic-paper-reviewer",
+    "has_skill": true,
+    "script_count": 1,
+    "scripts": [
+      "academic-paper-reviewer/scripts/build_review_packet.py"
+    ],
+    "reference_count": 1
+  },
+  {
+    "name": "arxiv",
+    "has_skill": true,
+    "script_count": 1,
+    "scripts": [
+      "arxiv/scripts/search_arxiv.py"
+    ],
+    "reference_count": 0
+  },
+  {
+    "name": "prisma-status",
+    "has_skill": true,
+    "script_count": 1,
+    "scripts": [
+      "prisma-status/scripts/review_status.py"
+    ],
+    "reference_count": 0
+  },
+  {
+    "name": "prisma-systematic-review",
+    "has_skill": true,
+    "script_count": 30,
+    "scripts": [
+      "prisma-systematic-review/scripts/audit_review_modes.py",
+      "prisma-systematic-review/scripts/bootstrap_architecture_review.py",
+      "prisma-systematic-review/scripts/bootstrap_public_intake.py",
+      "prisma-systematic-review/scripts/bootstrap_topic_review.py",
+      "prisma-systematic-review/scripts/cloud_inference.py",
+      "prisma-systematic-review/scripts/complete_review.py",
+      "prisma-systematic-review/scripts/docling_extract.py",
+      "prisma-systematic-review/scripts/doi_audit.py",
+      "prisma-systematic-review/scripts/export_publication_latex.py",
+      "prisma-systematic-review/scripts/journal_readiness_gate.py",
+      "prisma-systematic-review/scripts/package_publication_bundle.py",
+      "prisma-systematic-review/scripts/prepare_paper_figures.py",
+      "prisma-systematic-review/scripts/publication_audit.py",
+      "prisma-systematic-review/scripts/publication_autopilot.py",
+      "prisma-systematic-review/scripts/publication_gate.py",
+      "prisma-systematic-review/scripts/publication_peer_review.py",
+      "prisma-systematic-review/scripts/refresh_extraction_depth.py",
+      "prisma-systematic-review/scripts/render_review_figures.py",
+      "prisma-systematic-review/scripts/review_audit.py",
+      "prisma-systematic-review/scripts/review_mode_router.py",
+      "prisma-systematic-review/scripts/review_runtime_state.py",
+      "prisma-systematic-review/scripts/sync_review_to_obsidian.py",
+      "prisma-systematic-review/scripts/telegram_prisma_notify.py",
+      "prisma-systematic-review/scripts/verify_multimodal_pdf.py",
+      "prisma-systematic-review/tests/test_cloud_inference.py",
+      "prisma-systematic-review/tests/test_docling_extract.py",
+      "prisma-systematic-review/tests/test_publication_synthesis.py",
+      "prisma-systematic-review/tests/test_runtime_config.py",
+      "prisma-systematic-review/tests/test_search_decomposition.py",
+      "prisma-systematic-review/tests/test_verify_multimodal_pdf.py"
+    ],
+    "reference_count": 1
+  },
+  {
+    "name": "research-integrity-audit",
+    "has_skill": true,
+    "script_count": 1,
+    "scripts": [
+      "research-integrity-audit/scripts/check_manuscript_integrity.py"
+    ],
+    "reference_count": 1
+  },
+  {
+    "name": "revision-roadmap",
+    "has_skill": true,
+    "script_count": 1,
+    "scripts": [
+      "revision-roadmap/scripts/build_revision_roadmap.py"
+    ],
+    "reference_count": 1
+  }
+]
