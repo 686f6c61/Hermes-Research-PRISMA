@@ -11,17 +11,15 @@ from __future__ import annotations
 
 import argparse
 import ast
-import csv
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Iterable
-
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ENV_PATH = PACKAGE_ROOT / ".env"
@@ -195,78 +193,38 @@ def resolve_review_dir(review: str | None, env: dict[str, str]) -> Path:
     return latest.resolve()
 
 
-def csv_has_data_rows(path: Path) -> bool:
-    """Return True when a CSV contains at least one non-empty data row.
-
-    The public template ships header-only CSV placeholders so humans can see the
-    expected artifact shape. For pipeline routing, header-only files must still
-    count as "empty" or a fresh review will incorrectly skip the real search
-    bootstrap and jump into later stages with no corpus.
-    """
-
-    if not path.exists() or not path.is_file():
-        return False
-    try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.reader(handle)
-            next(reader, None)  # Skip the header row if present.
-            for row in reader:
-                if any((cell or "").strip() for cell in row):
-                    return True
-    except Exception:
-        return False
-    return False
-
-
 def build_pipeline_command(
     review_dir: Path,
     *,
     skip_publication_layer: bool,
     target_review_dir: str | None = None,
     target_script_root: str | None = None,
+    target_plugin_root: str | None = None,
 ) -> list[str]:
-    """Choose the safest pipeline path for the current review state.
+    """Build the durable runner command shared by CLI and Telegram."""
 
-    Fresh reviews created by the deterministic public bootstrap may only have the
-    protocol and runtime files. In that case we need the topic bootstrap before
-    the full pipeline. Reviews that already have search/record material can jump
-    straight into complete_review.py.
-    """
-
-    topic_bootstrap = prisma_script("bootstrap_topic_review.py")
-    complete_review = prisma_script("complete_review.py")
-    ensure_exists(topic_bootstrap, "topic bootstrap script")
-    ensure_exists(complete_review, "complete review script")
+    local_runner = SEEDED_HERMES_HOME / "plugins" / "hermes_research" / "job_runner.py"
+    ensure_exists(local_runner, "research job runner")
     review_arg = target_review_dir or str(review_dir)
-    topic_bootstrap_arg = (
-        str(Path(target_script_root) / "bootstrap_topic_review.py")
-        if target_script_root
-        else str(topic_bootstrap)
+    scripts_root = target_script_root or str(prisma_script())
+    runner = (
+        str(Path(target_plugin_root) / "job_runner.py")
+        if target_plugin_root
+        else str(local_runner)
     )
-    complete_review_arg = (
-        str(Path(target_script_root) / "complete_review.py")
-        if target_script_root
-        else str(complete_review)
-    )
-
-    search_log = review_dir / "searches" / "search-log.csv"
-    master_records = review_dir / "records" / "master-records.csv"
-    needs_bootstrap = not (csv_has_data_rows(search_log) and csv_has_data_rows(master_records))
-
-    if needs_bootstrap:
-        chain = (
-            f"python3 -u {shlex.quote(topic_bootstrap_arg)} {shlex.quote(review_arg)} "
-            f"&& python3 -u {shlex.quote(complete_review_arg)} "
-        )
-        if skip_publication_layer:
-            chain += "--skip-publication-layer "
-        chain += shlex.quote(review_arg)
-        return ["bash", "-c", chain]
-
-    command = ["python3", "-u", complete_review_arg]
+    command = [
+        "python3",
+        "-u",
+        runner,
+        "--review-dir",
+        review_arg,
+        "--scripts-dir",
+        scripts_root,
+        "--job-id",
+        uuid.uuid4().hex,
+    ]
     if skip_publication_layer:
         command.append("--skip-publication-layer")
-    command.append(review_arg)
     return command
 
 
@@ -385,7 +343,8 @@ def render_init_summary(
             [
                 "",
                 "Hermes is already continuing the review in the background.",
-                f"- PID marker: `{review_dir / 'notes' / f'{pid_label}.pid'}`",
+                f"- Durable job ledger: `{review_dir / 'notes' / 'job-ledger.json'}`",
+                f"- Compatibility PID marker: `{review_dir / 'notes' / f'{pid_label}.pid'}`",
                 f"- Log: `{review_dir / 'notes' / 'run.log'}`",
             ]
         )
@@ -472,15 +431,8 @@ def launch_background_in_container(
     notes_dir.mkdir(parents=True, exist_ok=True)
     log_path = notes_dir / "run.log"
     pid_path = notes_dir / f"{label}.pid"
-    container_pid_path = f"{container_review_dir_path}/notes/{label}.container.pid"
-    quoted_command = " ".join(shlex.quote(part) for part in command)
-    shell_command = (
-        f"mkdir -p {shlex.quote(container_review_dir_path)}/notes && "
-        f"nohup {quoted_command} >> {shlex.quote(container_review_dir_path)}/notes/run.log 2>&1 & "
-        f"echo $! > {shlex.quote(container_pid_path)}"
-    )
     result = subprocess.run(
-        ["docker", "exec", container, "sh", "-c", shell_command],
+        ["docker", "exec", "-d", "-w", "/workspace", container, *command],
         text=True,
         capture_output=True,
         env=env,
@@ -494,7 +446,7 @@ def launch_background_in_container(
                 "pid": None,
                 "transport": "docker-exec",
                 "container": container,
-                "container_pid_file": container_pid_path,
+                "ledger": f"{container_review_dir_path}/notes/job-ledger.json",
                 "command": command,
             },
             ensure_ascii=False,
@@ -572,10 +524,44 @@ def command_multimodal_test(_: argparse.Namespace, env: dict[str, str]) -> int:
     return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "multimodal-test.sh")], env=env, cwd=PACKAGE_ROOT)
 
 
+def command_capability_test(_: argparse.Namespace, env: dict[str, str]) -> int:
+    """Exercise the text and JSON contract required by each model role."""
+
+    return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "capability-test.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
 def command_docling_test(_: argparse.Namespace, env: dict[str, str]) -> int:
     """Validate structured extraction for digital, tabular, and scanned PDFs."""
 
     return run_command(["bash", str(PACKAGE_ROOT / "scripts" / "docling-test.sh")], env=env, cwd=PACKAGE_ROOT)
+
+
+def command_golden_eval(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Measure screening, extraction, and evidence predictions against gold labels."""
+
+    script = prisma_script("evaluate_golden.py")
+    ensure_exists(script, "golden evaluation script")
+    gold_dir = Path(args.gold_dir).expanduser()
+    predictions = Path(args.predictions).expanduser()
+    output_dir = Path(args.output_dir).expanduser()
+    if not gold_dir.is_absolute():
+        gold_dir = PACKAGE_ROOT / gold_dir
+    if not predictions.is_absolute():
+        predictions = PACKAGE_ROOT / predictions
+    if not output_dir.is_absolute():
+        output_dir = PACKAGE_ROOT / output_dir
+    return run_command(
+        [
+            "python3",
+            str(script),
+            str(gold_dir.resolve()),
+            str(predictions.resolve()),
+            "--output-dir",
+            str(output_dir.resolve()),
+        ],
+        env=env,
+        cwd=PACKAGE_ROOT,
+    )
 
 
 def command_cleanroom_validate(_: argparse.Namespace, env: dict[str, str]) -> int:
@@ -653,6 +639,7 @@ def command_init(args: argparse.Namespace, env: dict[str, str]) -> int:
                 if container_name
                 else None
             ),
+            target_plugin_root=str(Path("/opt/data") / "plugins" / "hermes_research") if container_name else None,
         )
         if container_name:
             launch_background_in_container(
@@ -706,6 +693,7 @@ def command_run(args: argparse.Namespace, env: dict[str, str]) -> int:
             skip_publication_layer=args.skip_publication_layer,
             target_review_dir=container_review_dir(review_dir, env),
             target_script_root=str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts"),
+            target_plugin_root=str(Path("/opt/data") / "plugins" / "hermes_research"),
         )
     else:
         command = build_pipeline_command(review_dir, skip_publication_layer=args.skip_publication_layer)
@@ -735,6 +723,7 @@ def command_resume(args: argparse.Namespace, env: dict[str, str]) -> int:
             skip_publication_layer=args.skip_publication_layer,
             target_review_dir=container_review_dir(review_dir, env),
             target_script_root=str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts"),
+            target_plugin_root=str(Path("/opt/data") / "plugins" / "hermes_research"),
         )
     else:
         command = build_pipeline_command(review_dir, skip_publication_layer=args.skip_publication_layer)
@@ -829,11 +818,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     multimodal.set_defaults(func=command_multimodal_test)
 
+    capability = subparsers.add_parser(
+        "capability-test",
+        help="Call each configured model and verify its role-specific contract",
+    )
+    capability.set_defaults(func=command_capability_test)
+
     docling = subparsers.add_parser(
         "docling-test",
         help="Validate structured PDF, table, figure, and OCR extraction",
     )
     docling.set_defaults(func=command_docling_test)
+
+    golden = subparsers.add_parser(
+        "golden-eval",
+        help="Evaluate screening, extraction, and evidence predictions against gold labels",
+    )
+    golden.add_argument("gold_dir", nargs="?", default="evals/fixtures/common")
+    golden.add_argument(
+        "predictions",
+        nargs="?",
+        default="evals/fixtures/common/predictions.jsonl",
+    )
+    golden.add_argument("--output-dir", default="output/golden-evaluation")
+    golden.set_defaults(func=command_golden_eval)
 
     cleanroom = subparsers.add_parser("cleanroom-validate", help="Validate a fresh clean-room copy of the bundle")
     cleanroom.set_defaults(func=command_cleanroom_validate)

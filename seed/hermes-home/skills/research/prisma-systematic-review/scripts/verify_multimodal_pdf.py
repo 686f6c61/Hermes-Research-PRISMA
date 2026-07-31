@@ -12,7 +12,8 @@ import subprocess
 import tempfile
 
 from cloud_inference import (
-    configured_research_models,
+    MODEL_ROLE_CAPABILITIES,
+    configured_research_model_roles,
     post_openai_compatible_chat,
     resolve_inference_runtime,
 )
@@ -133,13 +134,20 @@ def render_pdf(pdf_path: pathlib.Path, workdir: pathlib.Path) -> tuple[str, path
 
 
 def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[dict[str, object]]:
-    """Ask every approved model to read facts from the rendered page image."""
+    """Ask only roles that require vision to read facts from the page image."""
     base_url, api_key = resolve_inference_runtime(env_values)
     if not api_key:
         raise RuntimeError("HERMES_INFERENCE_API_KEY is required")
-    models = configured_research_models(env_values)
-    if not models:
+    role_models = configured_research_model_roles(env_values)
+    if not role_models:
         raise RuntimeError("At least one HERMES_MODEL_* value is required")
+    vision_roles = {
+        role: model
+        for role, model in role_models.items()
+        if "vision" in MODEL_ROLE_CAPABILITIES.get(role, ())
+    }
+    if not vision_roles:
+        raise RuntimeError("HERMES_MODEL_VISION is required for the multimodal probe")
 
     encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
     data_url = f"data:image/png;base64,{encoded}"
@@ -149,7 +157,7 @@ def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[
         "el tamaño total de la muestra y la media de la condición B. "
         "Formato recomendado: H7 | 42 | 37.4."
     )
-    for model in models:
+    for role, model in vision_roles.items():
         response = post_openai_compatible_chat(
             base_url=base_url,
             api_key=api_key,
@@ -172,10 +180,20 @@ def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[
             },
             timeout_seconds=120,
             user_agent="HermesResearchMultimodalProbe/1.0",
+            role=role,
+            capability="vision",
         )
         answer = extract_message_content(response)
         passed = answer_contains_expected_values(answer)
-        results.append({"model": model, "passed": passed, "answer": answer.strip()})
+        results.append(
+            {
+                "role": role,
+                "model": model,
+                "required_capability": "vision",
+                "passed": passed,
+                "answer": answer.strip(),
+            }
+        )
         if not passed:
             raise RuntimeError(f"{model} did not recover every expected visual value: {answer}")
     return results
@@ -188,6 +206,7 @@ def main() -> int:
         type=pathlib.Path,
         help="Optional PDF to render. Omit it to use the deterministic self-test PDF.",
     )
+    parser.add_argument("--output", type=pathlib.Path, help="Optional JSON evidence path.")
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="hermes-multimodal-") as temp_dir:
@@ -195,18 +214,18 @@ def main() -> int:
         pdf_path = args.pdf.resolve() if args.pdf else build_self_test_pdf(workdir)
         _, image_path = render_pdf(pdf_path, workdir)
         results = verify_models(image_path, {})
-        print(
-            json.dumps(
-                {
-                    "status": "pass",
-                    "pdf_text_layer": "pass",
-                    "pdf_page_render": "pass",
-                    "models": results,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        evidence = {
+            "schema_version": "hermes.multimodal-probe/v1",
+            "status": "pass",
+            "pdf_text_layer": "pass",
+            "pdf_page_render": "pass",
+            "models": results,
+        }
+        if args.output:
+            output = args.output.expanduser().resolve()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(evidence, ensure_ascii=False, indent=2))
     return 0
 
 

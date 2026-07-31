@@ -1,0 +1,6 @@
+{"task":"screening","doi":"fixture:001","decision":"include"}
+{"task":"screening","doi":"fixture:002","decision":"exclude"}
+{"task":"screening","doi":"fixture:003","decision":"review"}
+{"task":"extraction","doi":"fixture:001","field":"method","value":"Randomized trial"}
+{"task":"extraction","doi":"fixture:001","field":"sample_size","value":"120"}
+{"task":"evidence","doi":"fixture:001","claim_id":"claim-001","page":"7","snippet":"The intervention improved the primary outcome."}

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
+import sys
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -195,39 +196,48 @@ def autonomous_mode_enabled(value: str | None) -> bool:
 
 
 def public_autonomous_pid_path(review_dir: Path) -> Path:
-    """Return the marker file used by the public autonomous runner."""
+    """Return the compatibility marker for older command handlers."""
     return review_dir / "notes" / "public-autonomous.pid"
 
 
+def public_job_ledger_path(review_dir: Path) -> Path:
+    """Return the durable autonomous job ledger."""
+    return review_dir / "notes" / "job-ledger.json"
+
+
 def launch_public_autonomous_review(review_dir: Path) -> int:
-    """Start the topic bootstrap + complete review pipeline in the background."""
+    """Start the heartbeat-aware autonomous runner in the background."""
     notes_dir = review_dir / "notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
     log_path = notes_dir / "run.log"
-    topic_bootstrap = prisma_scripts_dir() / "bootstrap_topic_review.py"
-    complete_review = prisma_scripts_dir() / "complete_review.py"
     smoke_test = os.environ.get("HERMES_RESEARCH_SMOKE_TEST", "").strip().lower() in {
         "1",
         "true",
         "yes",
     }
-    chain = f"python3 -u {shlex.quote(str(topic_bootstrap))} {shlex.quote(str(review_dir))}"
-    script_label = str(topic_bootstrap)
-    if not smoke_test:
-        chain += f" && python3 -u {shlex.quote(str(complete_review))} {shlex.quote(str(review_dir))}"
-        script_label = f"{topic_bootstrap} -> {complete_review}"
+    job_id = uuid.uuid4().hex
     command = [
-        "bash",
-        "-c",
-        chain,
+        sys.executable,
+        "-u",
+        str(plugin_dir() / "job_runner.py"),
+        "--review-dir",
+        str(review_dir),
+        "--scripts-dir",
+        str(prisma_scripts_dir()),
+        "--job-id",
+        job_id,
     ]
+    if smoke_test:
+        command.append("--smoke-test")
     pid = launch_background(command, log_path, cwd=review_dir.parent)
     public_autonomous_pid_path(review_dir).write_text(
         json.dumps(
             {
                 "pid": pid,
+                "job_id": job_id,
                 "started_at": iso_now(),
-                "script": script_label,
+                "ledger": str(public_job_ledger_path(review_dir)),
+                "runner": str(plugin_dir() / "job_runner.py"),
             },
             ensure_ascii=False,
             indent=2,

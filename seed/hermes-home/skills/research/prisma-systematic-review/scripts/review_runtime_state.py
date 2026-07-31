@@ -13,8 +13,12 @@ PHASES = [
         "Fase 1. Intake y protocolo",
         [
             "protocol/intake.md",
+            "protocol/intake.json",
             "protocol/review-mode.md",
             "protocol/review-mode.json",
+            "protocol/method-contract.json",
+            "protocol/synthesis-plan.json",
+            "protocol/contracts-manifest.json",
             "protocol/research-question.md",
             "protocol/eligibility-criteria.md",
             "protocol/search-strategy.md",
@@ -49,14 +53,39 @@ PHASES = [
         "Extraer metadatos, metodología, teoría y evidencia.",
     ),
     (
-        "Fase 5. PRISMA, decisiones y calidad editorial",
+        "Fase 5. Análisis estructural y trazabilidad relacional",
+        [
+            "analysis/manifest.json",
+            "analysis/atlas/network-atlas.html",
+            "analysis/metrics/network-summary.json",
+            "analysis/audit/coverage.json",
+        ],
+        "Construir redes, métricas, cobertura y atlas offline sin alterar decisiones de selección.",
+    ),
+    (
+        "Fase 6. Síntesis y calidad editorial",
         [
             "prisma/flow-counts.csv",
             "paper/manuscript/publication-ready.md",
             "paper/review/peer-review-overview.md",
             "paper/audit/publication-gate.md",
+            "paper/audit/publication-gate.json",
+            "paper/audit/evidence-coverage.json",
         ],
-        "Consolidar PRISMA, figuras, auditoría y revisión editorial.",
+        "Consolidar síntesis, figuras, evidencia, auditoría y revisión editorial.",
+    ),
+    (
+        "Fase 7. Entrega navegable y reproducible",
+        [
+            "paper/manuscript/publication-ready.tex",
+            "paper/manuscript/publication-ready.pdf",
+            "paper/package/publication-package.zip",
+            "paper/package/publication-latex-editable.zip",
+            "paper/package/index.html",
+            "paper/package/deliverables-manifest.json",
+            "notes/pipeline-state.json",
+        ],
+        "Empaquetar manuscrito, datos, auditorías y guía HTML portátil.",
     ),
 ]
 
@@ -110,7 +139,7 @@ REQUIRED_FILE_SCHEMES = [
         "paper/audit/publication-gate.md",
         "audit/publication-gate.md",
     ],
-    # Phase 5: peer-review-overview may exist as review-manifest.csv or individual reviews
+    # Phase 6: peer-review-overview may exist as review-manifest.csv or individual reviews
     [
         "paper/review/peer-review-overview.md",
         "paper/review/review-manifest.csv",
@@ -156,7 +185,16 @@ def determine_state(review_dir: pathlib.Path, stalled_minutes: int) -> dict:
         # Verify the review still has core artifacts before preserving
         core_manuscript = review_dir / "paper/manuscript/publication-ready.md"
         core_prisma = review_dir / "prisma/flow-counts.csv"
-        if has_meaningful_content(core_manuscript) and has_meaningful_content(core_prisma):
+        core_analysis = review_dir / "analysis/manifest.json"
+        core_guide = review_dir / "paper/package/index.html"
+        core_gate = review_dir / "paper/audit/publication-gate.json"
+        if (
+            has_meaningful_content(core_manuscript)
+            and has_meaningful_content(core_prisma)
+            and has_meaningful_content(core_analysis)
+            and has_meaningful_content(core_guide)
+            and has_meaningful_content(core_gate)
+        ):
             return {
                 "status": "completed",
                 "current_phase": PHASES[-1][0],

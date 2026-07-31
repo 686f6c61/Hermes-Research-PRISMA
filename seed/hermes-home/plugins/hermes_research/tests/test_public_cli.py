@@ -63,15 +63,19 @@ def test_parser_preserves_ranged_final_n() -> None:
     assert cli.collect_init_payload(args)["final_n"] == "23-63"
 
 
-def test_fresh_pipeline_uses_non_login_shell(tmp_path: Path) -> None:
+def test_fresh_pipeline_uses_durable_job_runner_without_shell(tmp_path: Path) -> None:
     cli = load_public_cli()
     command = cli.build_pipeline_command(
         tmp_path,
         skip_publication_layer=False,
         target_review_dir="/workspace/systematic-review-test",
         target_script_root="/opt/data/skills/research/prisma-systematic-review/scripts",
+        target_plugin_root="/opt/data/plugins/hermes_research",
     )
-    assert command[:2] == ["bash", "-c"]
+    assert command[:2] == ["python3", "-u"]
+    assert command[2] == "/opt/data/plugins/hermes_research/job_runner.py"
+    assert "bash" not in command
+    assert "--job-id" in command
 
 
 def test_process_environment_overrides_dotenv(

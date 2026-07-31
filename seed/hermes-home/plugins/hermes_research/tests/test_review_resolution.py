@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -134,6 +136,61 @@ def test_smoke_autonomous_run_stops_after_bounded_bootstrap(
 
     assert runtime.launch_public_autonomous_review(review_dir) == 123
     command = captured["command"]
-    assert command[:2] == ["bash", "-c"]
-    assert "bootstrap_topic_review.py" in command[2]
-    assert "complete_review.py" not in command[2]
+    assert command[1] == "-u"
+    assert command[2].endswith("job_runner.py")
+    assert "--review-dir" in command
+    assert "--scripts-dir" in command
+    assert "--job-id" in command
+    assert "--smoke-test" in command
+    assert "bash" not in command
+    marker = runtime.public_autonomous_pid_path(review_dir)
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    assert payload["pid"] == 123
+    assert payload["job_id"]
+    assert payload["ledger"].endswith("notes/job-ledger.json")
+
+
+def test_job_runner_resumes_existing_corpus_without_repeating_search(tmp_path: Path) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    bootstrap = scripts_dir / "bootstrap_topic_review.py"
+    bootstrap.write_text(
+        "from pathlib import Path\nPath(__file__).with_name('bootstrap-ran').touch()\n",
+        encoding="utf-8",
+    )
+    complete = scripts_dir / "complete_review.py"
+    complete.write_text(
+        "from pathlib import Path\nimport sys\n"
+        "Path(__file__).with_name('complete-args.json').write_text(repr(sys.argv))\n",
+        encoding="utf-8",
+    )
+    review_dir = materialize_review(tmp_path)
+    (review_dir / "searches").mkdir()
+    (review_dir / "records").mkdir()
+    (review_dir / "searches/search-log.csv").write_text("source,query\ntest,agents\n", encoding="utf-8")
+    (review_dir / "records/master-records.csv").write_text(
+        "record_id,assigned_doi\nRID-TEST,10.1234/example\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(runtime.plugin_dir() / "job_runner.py"),
+            "--review-dir",
+            str(review_dir),
+            "--scripts-dir",
+            str(scripts_dir),
+            "--job-id",
+            "job-test",
+            "--skip-publication-layer",
+        ],
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert not (scripts_dir / "bootstrap-ran").exists()
+    assert "--skip-publication-layer" in (scripts_dir / "complete-args.json").read_text(encoding="utf-8")
+    ledger = json.loads((review_dir / "notes/job-ledger.json").read_text(encoding="utf-8"))
+    assert ledger["status"] == "completed"
+    assert ledger["job_id"] == "job-test"

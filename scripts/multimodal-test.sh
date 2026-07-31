@@ -15,4 +15,4 @@ section "Scientific PDF and image probe"
 docker exec "${HERMES_CONTAINER}" \
   python3 \
   /opt/data/skills/research/prisma-systematic-review/scripts/verify_multimodal_pdf.py
-pass "PDF extraction, page rendering, and all approved visual models passed"
+pass "PDF extraction, page rendering, and the configured visual role passed"

@@ -35,6 +35,7 @@ RUN git init /opt/hermes && \
 WORKDIR /opt/hermes
 
 COPY build/security-constraints.txt /tmp/security-constraints.txt
+COPY build/research-requirements.txt /tmp/research-requirements.txt
 COPY --from=uv_source /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=uv_source /usr/local/bin/uvx /usr/local/bin/uvx
 
@@ -58,9 +59,10 @@ RUN sed -i \
         "aiohttp==3.14.1" \
         "brotlicffi==1.2.0.1" \
         "qrcode==7.4.2" \
+        -r /tmp/research-requirements.txt \
         -r /tmp/security-constraints.txt && \
     uv pip check --python /opt/hermes/.venv/bin/python && \
-    rm -f /tmp/security-constraints.txt && \
+    rm -f /tmp/research-requirements.txt /tmp/security-constraints.txt && \
     printf '%s\n' "${HERMES_COMMIT}" > /opt/hermes/.hermes-source-commit && \
     rm -rf /opt/hermes/.git
 

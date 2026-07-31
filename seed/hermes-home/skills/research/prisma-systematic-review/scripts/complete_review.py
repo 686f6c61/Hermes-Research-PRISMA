@@ -226,12 +226,16 @@ def post_openai_compatible_chat(
     payload: dict[str, object],
     timeout_seconds: int,
 ) -> dict[str, object]:
+    active_review = os.environ.get("HERMES_ACTIVE_REVIEW_DIR", "").strip()
     return cloud_post_openai_compatible_chat(
         base_url=base_url,
         api_key=api_key,
         payload=payload,
         timeout_seconds=timeout_seconds,
         user_agent=USER_AGENT,
+        role="primary",
+        capability="json",
+        review_dir=pathlib.Path(active_review) if active_review else None,
     )
 
 
@@ -6175,6 +6179,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     review_dir = pathlib.Path(args.review_dir).resolve()
+    os.environ["HERMES_ACTIVE_REVIEW_DIR"] = str(review_dir)
     intake_path = review_dir / "protocol" / "intake.md"
     n_min, n_limit_raw = parse_intake_n_range(intake_path)
     n_limit = n_limit_raw or 20
@@ -6416,6 +6421,23 @@ def main(argv: list[str]) -> int:
         write_csv(review_dir / "records" / "master-records.csv", list(master_rows[0].keys()), list(master_map.values()))
     checkpoint_sync(review_dir)
 
+    analysis_status = "delegated_to_publication_layer"
+    analysis_script = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "research-network-analysis"
+        / "scripts"
+        / "build_network_analysis.py"
+    )
+    if args.skip_publication_layer:
+        try:
+            subprocess.run(
+                [sys.executable, str(analysis_script), str(review_dir)],
+                check=True,
+            )
+            analysis_status = "completed"
+        except subprocess.CalledProcessError:
+            analysis_status = "failed"
+
     publication_status = "skipped"
     publication_script = pathlib.Path(__file__).resolve().parent / "publication_autopilot.py"
     if not args.skip_publication_layer:
@@ -6436,9 +6458,10 @@ def main(argv: list[str]) -> int:
         "final_n_min": n_min or "",
         "final_n_max": n_limit,
         "models_used": model_log,
+        "network_analysis": analysis_status,
         "publication_layer": publication_status,
     }, ensure_ascii=False, indent=2))
-    return 0 if publication_status != "failed" else 1
+    return 0 if publication_status != "failed" and analysis_status != "failed" else 1
 
 
 if __name__ == "__main__":

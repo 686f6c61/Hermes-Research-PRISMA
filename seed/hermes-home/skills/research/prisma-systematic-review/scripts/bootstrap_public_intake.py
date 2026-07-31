@@ -86,6 +86,7 @@ def write_intake(path: pathlib.Path, data: dict[str, str]) -> None:
             f"una familia temática amplia, Hermes usa `generic-common-core`): {data.get('target_outlet', '').strip()}"
         ),
         f"- Longitud objetivo del manuscrito (opcional): {data.get('target_length', '').strip()}",
+        f"- Modo de validación (opcional): {data.get('validation_mode', 'autonomous').strip()}",
         "",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,6 +133,7 @@ def remove_generated_placeholders(review_dir: pathlib.Path) -> None:
 
 def limited_refresh(script_dir: pathlib.Path, review_dir: pathlib.Path) -> None:
     commands = [
+        [sys.executable, str(script_dir / "build_review_contracts.py"), str(review_dir)],
         [sys.executable, str(script_dir / "review_runtime_state.py"), str(review_dir)],
         [sys.executable, str(script_dir / "review_audit.py"), str(review_dir)],
         [sys.executable, str(script_dir / "sync_review_to_obsidian.py"), str(review_dir)],

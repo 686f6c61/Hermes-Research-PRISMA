@@ -17,6 +17,7 @@ ensure_file "${ROOT_DIR}/docker-compose.research.yml"
 ensure_file "${ROOT_DIR}/Dockerfile.research"
 ensure_file "${ROOT_DIR}/.env.example"
 ensure_file "${ROOT_DIR}/install.sh"
+ensure_file "${ROOT_DIR}/scripts/capability-test.sh"
 ensure_file "${ROOT_DIR}/scripts/docling-test.sh"
 pass "Core package files are present"
 
@@ -173,6 +174,7 @@ if missing:
     raise SystemExit(f"Configured models missing from provider catalog: {', '.join(missing)}")
 PY
 pass "Every configured model is available from the provider"
+pass "Model names exist; run capability-test and multimodal-test to prove behavior, not only catalog presence"
 
 section "Public gateway mode"
 if [[ "${INSTALL_MODE}" == "cli" ]]; then

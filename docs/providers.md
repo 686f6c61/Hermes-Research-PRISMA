@@ -14,7 +14,8 @@ Configura:
 - `HERMES_MODEL_REVIEW`: revisión independiente y crítica editorial.
 
 `doctor` consulta `GET /models` y comprueba que los tres identificadores estén
-disponibles. Esto detecta nombres obsoletos antes de iniciar el corpus.
+disponibles. Esto detecta nombres obsoletos antes de iniciar el corpus, pero no
+demuestra que el endpoint cumpla las capacidades declaradas.
 
 ## Cómo elegir modelos
 
@@ -33,9 +34,16 @@ complaciente y hace visibles desacuerdos.
 
 1. Ejecuta `./hermes-research setup` y cambia solo los identificadores.
 2. Ejecuta `./hermes-research doctor`.
-3. Ejecuta `./hermes-research multimodal-test`.
-4. Ejecuta `./hermes-research smoke-test`.
-5. Conserva el cambio solo si el formato, las citas y la lectura visual pasan.
+3. Ejecuta `./hermes-research capability-test`.
+4. Ejecuta `./hermes-research multimodal-test`.
+5. Ejecuta `./hermes-research smoke-test`.
+6. Conserva el cambio solo si el formato, la identidad efectiva del modelo y la
+   lectura visual pasan.
+
+Cada revisión conserva `paper/audit/model-capabilities.json` y
+`paper/audit/model-provenance.csv`. El primero declara y prueba el contrato por
+función; el segundo registra proveedor, modelo solicitado, modelo efectivo,
+capacidad, estado y uso de tokens sin guardar API keys ni URLs privadas.
 
 No codifiques nombres de modelos en scripts ni documentación metodológica. El
 manuscrito debe describir la política de inferencia utilizada en esa ejecución

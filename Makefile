@@ -1,20 +1,24 @@
 .DEFAULT_GOAL := help
 
+PYTHON ?= python3
+
 .PHONY: help install-dev lint test compose-check check cleanroom plugin-only release-candidate
 
 help: ## Show the available development commands.
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_-]+:.*## / {printf "%-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 install-dev: ## Install local quality and test tools.
-	python3 -m pip install --disable-pip-version-check pre-commit pytest pyyaml ruff==0.15.22
+	$(PYTHON) -m pip install --disable-pip-version-check \
+		-r build/research-requirements.txt \
+		pre-commit pytest pyyaml ruff==0.15.22
 
 lint: ## Run Python, shell and publication-metadata checks.
 	ruff check seed/hermes-home/plugins seed/hermes-home/skills/research tests
 	bash scripts/lint-shell.sh
-	python3 scripts/validate-publication-metadata.py
+	$(PYTHON) scripts/validate-publication-metadata.py
 
 test: ## Run the public regression suite.
-	python3 -m pytest -q
+	$(PYTHON) -m pytest -q
 
 compose-check: ## Validate the Docker Compose contract without starting services.
 	cp -n .env.example .env 2>/dev/null || true

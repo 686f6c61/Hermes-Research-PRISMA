@@ -46,6 +46,7 @@ def test_register_exposes_public_commands_through_plugin_api() -> None:
     assert "research" in context.cli_commands
     assert "pre_gateway_dispatch" in context.hooks
     assert "prisma-systematic-review" in context.skills
+    assert "research-network-analysis" in context.skills
 
 
 def test_bootstrap_removes_contact_bearing_transport_file(

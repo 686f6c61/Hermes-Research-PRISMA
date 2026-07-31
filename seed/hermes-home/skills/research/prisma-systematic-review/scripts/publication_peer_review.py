@@ -20,7 +20,12 @@ from datetime import datetime, timezone
 from typing import Iterable
 from urllib import error, request
 
-from cloud_inference import configured_research_models
+from cloud_inference import (
+    adaptive_max_tokens,
+    append_model_provenance,
+    configured_research_models,
+    response_effective_model,
+)
 
 REQUIRED_FIELDS = [
     "reviewer_id",
@@ -771,6 +776,7 @@ def call_openai_compatible_chat(
     prompt: str,
     timeout: int = 240,
     max_tokens: int = 4000,
+    review_dir: pathlib.Path | None = None,
 ) -> tuple[str, str]:
     endpoint = base_url.rstrip("/") + "/chat/completions"
     payload = {
@@ -786,7 +792,7 @@ def call_openai_compatible_chat(
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.1,
-        "max_tokens": max_tokens,
+        "max_tokens": adaptive_max_tokens(model, max_tokens),
         "stream": False,
     }
     normalized_base = base_url.strip().lower()
@@ -862,11 +868,29 @@ def call_openai_compatible_chat(
         except TimeoutError as exc:
             raise RuntimeError(f"Timeout while calling `{model}` after {timeout}s.") from exc
     data = json.loads(stdout)
+    effective_model = response_effective_model(data, model)
+    fallback_detected = effective_model.strip().lower() != model.strip().lower()
+    if review_dir is not None:
+        append_model_provenance(
+            review_dir,
+            role="review",
+            capability="text",
+            base_url=base_url,
+            requested_model=model,
+            effective_model=effective_model,
+            status="fallback_rejected" if fallback_detected else "ok",
+            response=data,
+        )
+    if fallback_detected:
+        raise RuntimeError(
+            "Reviewer provider returned a different model than requested: "
+            f"requested={model!r}, effective={effective_model!r}."
+        )
     choice = (data.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     content = extract_message_text(message.get("content", ""))
     if content:
-        return content, "content"
+        return content, effective_model
     if extract_message_text(message.get("reasoning", "")):
         raise RuntimeError(f"Model `{model}` returned reasoning without final content.")
     raise RuntimeError(f"Empty response from model `{model}`.")
@@ -1070,14 +1094,16 @@ def main() -> int:
             model_succeeded = False
             for attempt_number in range(1, max_attempts + 1):
                 try:
-                    response_text, channel = call_openai_compatible_chat(
+                    response_text, effective_model = call_openai_compatible_chat(
                         base_url,
                         api_key,
                         candidate_model,
                         prompt,
                         timeout=timeout,
                         max_tokens=max_tokens,
+                        review_dir=review_dir,
                     )
+                    model = effective_model
                     notes = attempt_notes
                     if candidate_model != requested_model:
                         notes = (notes + f" | fallback_from={requested_model} | fallback_model={candidate_model}").strip(" |")
@@ -1091,6 +1117,7 @@ def main() -> int:
                             build_verdict_retry_prompt(response_text),
                             timeout=retry_timeout,
                             max_tokens=256,
+                            review_dir=review_dir,
                         )
                         retry_verdict = extract_verdict(retry_text)
                         if retry_verdict != "unresolved":

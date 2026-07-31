@@ -44,20 +44,69 @@ def test_runtime_does_not_replace_hermes_core_modules() -> None:
     assert not (ROOT / "build" / "overrides").exists()
 
 
-def test_readme_product_images_are_local_and_bounded() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    image_paths = set(re.findall(r"\]\((docs/images/[^)]+\.png)\)", readme))
-    expected = {
-        "docs/images/agent-architecture.png",
-        "docs/images/deliverables.png",
-        "docs/images/pdf-reading.png",
-        "docs/images/product-overview.png",
-        "docs/images/research-cycle-12-phases.png",
-    }
-    assert image_paths == expected
+def test_structural_analysis_is_wired_into_runtime_and_publication_package() -> None:
+    autopilot = (
+        ROOT
+        / "seed/hermes-home/skills/research/prisma-systematic-review/scripts/publication_autopilot.py"
+    ).read_text(encoding="utf-8")
+    runtime = (
+        ROOT
+        / "seed/hermes-home/skills/research/prisma-systematic-review/scripts/review_runtime_state.py"
+    ).read_text(encoding="utf-8")
+    package = (
+        ROOT
+        / "seed/hermes-home/skills/research/prisma-systematic-review/scripts/package_publication_bundle.py"
+    ).read_text(encoding="utf-8")
+    assert "build_network_analysis.py" in autopilot
+    assert "analysis/atlas/network-atlas.html" in runtime
+    assert "analysis/metrics/network-summary.json" in runtime
+    assert "analysis_assets" in package
+    assert "analysis/atlas/network-atlas.html" in package
 
-    for relative_path in image_paths:
-        image = ROOT / relative_path
-        assert image.is_file()
-        assert image.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-        assert image.stat().st_size < 1_000_000
+
+def test_research_dependency_is_consistent_across_local_ci_and_container() -> None:
+    requirements = (ROOT / "build/research-requirements.txt").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile.research").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "networkx==3.6.1" in requirements
+    assert "build/research-requirements.txt" in dockerfile
+    assert "build/research-requirements.txt" in makefile
+    workflow_path = ROOT / ".github/workflows/ci.yml"
+    if workflow_path.exists():
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "build/research-requirements.txt" in workflow
+
+
+def test_landing_publishes_a_complete_structural_atlas_example() -> None:
+    # The product landing is deployed from this repository but intentionally
+    # excluded from the installable research-pack ZIP.
+    if not (ROOT / "landing").is_dir():
+        return
+
+    home = (ROOT / "landing/index.html").read_text(encoding="utf-8")
+    example = (ROOT / "landing/atlas-estructural.html").read_text(encoding="utf-8")
+    atlas = (ROOT / "landing/ejemplos/atlas/network-atlas.html").read_text(
+        encoding="utf-8"
+    )
+    nginx = (ROOT / "nginx.conf").read_text(encoding="utf-8")
+
+    assert 'href="/atlas-estructural.html"' in home
+    assert 'href="/ejemplos/atlas/network-atlas.html"' in example
+    assert "GEXF · Gephi" in atlas
+    assert "downloadPng" in atlas
+    assert "downloadSvg" in atlas
+    assert "downloadGexf" in atlas
+    assert 'href="../data/graph.graphml"' in atlas
+    assert "location ^~ /ejemplos/atlas/" in nginx
+
+    for relative in (
+        "landing/ejemplos/data/graph.graphml",
+        "landing/ejemplos/data/nodes.csv",
+        "landing/ejemplos/data/edges.csv",
+        "landing/ejemplos/data/studies.csv",
+        "landing/ejemplos/figures/png/authors-network.png",
+        "landing/ejemplos/figures/png/topics-network.png",
+        "landing/ejemplos/figures/svg/authors-network.svg",
+        "landing/ejemplos/figures/svg/topics-network.svg",
+    ):
+        assert (ROOT / relative).is_file(), relative

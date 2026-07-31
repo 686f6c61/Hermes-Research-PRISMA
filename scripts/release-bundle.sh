@@ -63,6 +63,8 @@ cat > "${staging_dir}/RELEASE-NOTES.md" <<EOF
 - Runtime state included: no
 - Installation guide: \`docs/installation.md\`
 - Clean-room validation command: \`./hermes-research cleanroom-validate\`
+- Role capability test command: \`./hermes-research capability-test\`
+- Golden harness test command: \`./hermes-research golden-eval\`
 - Structured PDF test command: \`./hermes-research docling-test\`
 
 ## First steps

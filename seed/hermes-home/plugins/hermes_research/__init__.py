@@ -26,6 +26,7 @@ _RESEARCH_SKILLS = (
     "academic-paper-reviewer",
     "research-integrity-audit",
     "revision-roadmap",
+    "research-network-analysis",
 )
 
 _PUBLIC_COMMANDS = (

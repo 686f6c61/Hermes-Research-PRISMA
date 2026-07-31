@@ -25,6 +25,12 @@ entry point, namespaced skills, slash and CLI commands, and a
 - Adds Europe PMC and PubMed automatically for biomedical/health/psychology topics, or when forced with environment flags.
 - Uses Unpaywall as a DOI-to-open-access/full-text resolver when `HERMES_UNPAYWALL_EMAIL` or `UNPAYWALL_EMAIL` is configured. This value is treated as a secret/contact setting and is never written to review artifacts.
 - Asks for an optional methodological field in the Telegram wizard, but can also infer it automatically and persist the rationale in `protocol/review-mode.md`.
+- Launches reviews through a durable job ledger with job ID, child PID, phase,
+  attempt, heartbeat and terminal status, so `/reanudar` does not depend on a
+  transient shell marker.
+- Supports `autonomous`, `assisted` and `adjudicated` validation policies.
+- Produces a portable `paper/package/index.html` and a hashed
+  `deliverables-manifest.json` as the entry point to every completed review.
 
 ## Optional Research Source Environment
 
@@ -40,6 +46,7 @@ entry point, namespaced skills, slash and CLI commands, and a
 - Docker packaging and release tooling
 - provider policy and environment secrets
 - bundle installer, doctor, smoke test, clean-room validation
+- role-aware model capability tests and golden evaluation fixtures
 - compatibility overrides required by the public Telegram menu
 
 See `MIGRATION-MANIFEST.md` for the exhaustive inventory.

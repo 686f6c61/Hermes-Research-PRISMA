@@ -38,11 +38,17 @@ inventario técnico está en
 - Cribado de título/resumen y texto completo con justificación persistente.
 - Lectura de PDF con Poppler y extracción estructurada opcional con Docling.
 - Matriz de evidencia, tablas, figuras y fichas por estudio.
+- Atlas HTML offline de autores, temas, referencias y evidencia, con centralidad, comunidades, cobertura y deriva entre fases.
 - Manuscrito Markdown, LaTeX editable y PDF.
 - Revisión independiente, auditoría de integridad y gate de publicación.
+- Guía HTML offline que explica los doce bloques de la entrega y enlaza cada
+  archivo desde un punto de entrada útil.
+- Manifiesto JSON con estado, tamaño y SHA-256 de cada entregable público.
+- Ledger que conecta afirmaciones críticas, citas, DOI, fragmentos y páginas.
+- Procedencia de modelos por función y prueba explícita de sus capacidades.
 - Estado recuperable, watchdog autónomo y sincronización local con Obsidian.
 
-[![Entregables de Hermes Research Pack: PDF, LaTeX, Markdown, CSV, figuras, auditoría y ZIP](docs/images/deliverables.png)](https://hermes-prisma.686f6c61.dev/#entregables)
+[![Entregables de Hermes Research Pack: PDF, LaTeX, Markdown, CSV, figuras, auditoría y ZIP](docs/images/deliverables.png)](https://hermes-prisma.686f6c61.dev/entregables.html)
 
 ## Dónde trabaja bien
 
@@ -77,6 +83,8 @@ Después, dentro de la carpeta descomprimida:
 ```bash
 ./hermes-research setup
 ./hermes-research up
+./hermes-research capability-test
+./hermes-research multimodal-test
 ./hermes-research smoke-test
 ```
 
@@ -137,6 +145,11 @@ En Telegram, la superficie pública es `/start`, `/nueva_revision`, `/estado`,
 11. La síntesis convierte el corpus en una tesis y una gramática comparativa.
 12. La revisión independiente, la auditoría y el gate deciden el cierre.
 
+El análisis estructural conecta autores, temas, referencias y dimensiones sin
+intervenir en la selección. Después, el empaquetado abre con `index.html`,
+recalcula hashes, elimina rutas e identificadores internos y conserva un estado
+que el watchdog puede reanudar sin repetir fases estables.
+
 [![Ciclo completo de doce fases de Hermes Research Pack](docs/images/research-cycle-12-phases.png)](https://hermes-prisma.686f6c61.dev/#proceso)
 
 Consulta [docs/architecture.md](docs/architecture.md),
@@ -188,7 +201,14 @@ de modelos, Telegram cuando esté activado y las fuentes bibliográficas.
 Una revisión no recibe `PASS` por tener texto. Deben existir protocolo, corpus,
 decisiones trazables, extracción, manuscrito, LaTeX, PDF, paquete editable,
 revisión independiente y auditoría. Las cifras y afirmaciones deben enlazar con
-la matriz de evidencia.
+la matriz de evidencia. El rango de N es un objetivo operativo, nunca una cuota
+que fuerce inclusiones.
+
+El paquete distingue tres políticas de validación: `autonomous`, `assisted` y
+`adjudicated`. La última no puede cerrar sin un registro humano válido. Las
+evaluaciones golden miden por separado precisión y recall del cribado, exactitud
+de extracción y localización de evidencia; un test sintético demuestra el
+harness, pero nunca se presenta como validación científica del modelo.
 
 La disponibilidad de una fuente no autoriza automáticamente su descarga o
 redistribución. La persona responsable debe revisar licencias, términos de uso,
@@ -222,7 +242,7 @@ revisión reproducible, cita la versión exacta y conserva también el
 
 ## Compatibilidad y licencia
 
-La versión `0.3.x` está fijada a Hermes Agent `v2026.7.20`, commit
+La versión `0.4.0` está fijada a Hermes Agent `v2026.7.20`, commit
 `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. No se recomienda mezclar el
 plugin con otra versión de Hermes sin ejecutar la matriz completa de pruebas.
 

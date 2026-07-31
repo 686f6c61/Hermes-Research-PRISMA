@@ -12,11 +12,11 @@ Ventana temporal inicial:
 
 ### Concepto A
 
--
+- 
 
 ### Concepto B
 
--
+- 
 
 ## Draft Query Logic
 
@@ -26,7 +26,7 @@ Ventana temporal inicial:
 
 ## Suggested Sources
 
--
+- 
 
 ## DOI Policy
 
@@ -34,3 +34,4 @@ Ventana temporal inicial:
 - Si un resultado trae URL DOI, se normaliza a DOI puro
 - Si no hay DOI, intentar resolución por título + año + autores
 - Si la coincidencia no es fuerte, dejar `needs_doi_resolution=yes`
+

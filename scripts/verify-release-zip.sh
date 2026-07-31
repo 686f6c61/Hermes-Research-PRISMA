@@ -84,6 +84,8 @@ pass "The extracted release ZIP passed install and clean-room validation"
 section "Validate structured-document release contract"
 ensure_file "${release_dir}/scripts/docling-test.sh"
 ensure_file "${release_dir}/scripts/plugin-only-test.sh"
+ensure_file "${release_dir}/evals/fixtures/common/predictions.jsonl"
+ensure_file "${release_dir}/evals/golden/social_sciences/gold-records.csv"
 ensure_file "${release_dir}/docs/docling.md"
 ensure_file "${release_dir}/LICENSE"
 ensure_file "${release_dir}/SECURITY.md"
@@ -91,10 +93,18 @@ ensure_file "${release_dir}/THIRD_PARTY_NOTICES.md"
 ensure_file "${release_dir}/RELEASE-MANIFEST.json"
 ensure_file "${release_dir}/seed/hermes-home/skills/research/prisma-systematic-review/scripts/docling_extract.py"
 ensure_file "${release_dir}/seed/hermes-home/skills/research/prisma-systematic-review/tests/test_docling_extract.py"
+ensure_file "${release_dir}/seed/hermes-home/skills/research/research-network-analysis/scripts/build_network_analysis.py"
+ensure_file "${release_dir}/seed/hermes-home/skills/research/research-network-analysis/references/methodology.md"
+ensure_file "${release_dir}/build/research-requirements.txt"
 docker compose -f "${release_dir}/docker-compose.research.yml" --profile docling config >/dev/null
-python3 -c 'import pytest' >/dev/null 2>&1 || fail "pytest is required to verify the extracted release tests"
+test_venv="${tmp_root}/release-test-venv"
+python3 -m venv "${test_venv}"
+"${test_venv}/bin/python" -m pip install --disable-pip-version-check --quiet \
+  -r "${release_dir}/build/research-requirements.txt" \
+  pytest \
+  pyyaml
 pytest_log="${tmp_root}/release-pytest.log"
-if ! (cd "${release_dir}" && python3 -m pytest -q >"${pytest_log}" 2>&1); then
+if ! (cd "${release_dir}" && "${test_venv}/bin/python" -m pytest -q >"${pytest_log}" 2>&1); then
   cat "${pytest_log}" >&2
   fail "The extracted release test suite failed"
 fi

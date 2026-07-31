@@ -169,6 +169,15 @@ def build_summary(review_dir: pathlib.Path) -> dict:
     prisma_rows = csv_rows(review_dir / "prisma" / "flow-counts.csv")
     figure_rows = csv_rows(review_dir / "figures" / "manifest.csv")
     selection_rows = csv_rows(review_dir / "selection" / "ultraquality-shortlist.csv")
+    analysis_summary = {}
+    analysis_summary_path = review_dir / "analysis" / "metrics" / "network-summary.json"
+    if analysis_summary_path.exists():
+        try:
+            analysis_summary = json.loads(analysis_summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            analysis_summary = {}
+    analysis_coverage = analysis_summary.get("coverage", {})
+    analysis_layers = analysis_summary.get("layers", {})
 
     title_counts = count_decisions(title_rows)
     full_text_counts = count_decisions(full_text_rows)
@@ -205,6 +214,15 @@ def build_summary(review_dir: pathlib.Path) -> dict:
             1 for row in selection_rows
             if (row.get("selected_for_final_n") or "").strip().lower() in {"yes", "sí", "si", "true", "1"}
         ),
+        "analysis_ready": (review_dir / "analysis" / "manifest.json").exists(),
+        "analysis_atlas": str(review_dir / "analysis" / "atlas" / "network-atlas.html"),
+        "analysis_author_coverage": analysis_coverage.get("authors", {}).get("coverage", 0.0),
+        "analysis_reference_coverage": analysis_coverage.get("references", {}).get("coverage", 0.0),
+        "analysis_keyword_coverage": analysis_coverage.get("keywords", {}).get("coverage", 0.0),
+        "analysis_layer_statuses": {
+            layer: payload.get("claim_status", "unknown")
+            for layer, payload in analysis_layers.items()
+        },
         "phase_audit": phase_audit,
         "final_audit": parse_final_audit(review_dir / "audit" / "final-audit.md"),
     }
@@ -243,6 +261,11 @@ def render_markdown(summary: dict) -> str:
         f"- Filas PRISMA: {summary['prisma_count_rows']}",
         f"- Shortlist ultraquality: {summary['selection_count']} filas ({summary['selection_selected_count']} seleccionadas para el N final)",
         f"- Figuras registradas: {summary['figure_count']}",
+        f"- Atlas estructural: {'listo' if summary['analysis_ready'] else 'pendiente'}",
+        f"- Cobertura de autoría: {summary['analysis_author_coverage']:.1%}",
+        f"- Cobertura de referencias: {summary['analysis_reference_coverage']:.1%}",
+        f"- Cobertura de palabras clave: {summary['analysis_keyword_coverage']:.1%}",
+        f"- Ruta del atlas: `{summary['analysis_atlas']}`",
         "",
         "## Auditoría",
         f"- Fases: {audit_summary}",

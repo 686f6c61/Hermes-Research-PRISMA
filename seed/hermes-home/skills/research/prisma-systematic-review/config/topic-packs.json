@@ -1,0 +1,55 @@
+{
+  "schema_version": "hermes.topic-packs/v1",
+  "packs": [
+    {
+      "id": "ai-higher-education",
+      "match_any": ["higher education", "educacion superior", "universidad", "docentes universitarios", "faculty"],
+      "require_any": ["artificial intelligence", "inteligencia artificial", "generative ai", "llm", "agentes de ia"],
+      "review_modes": ["education", "mixed"],
+      "stage": {
+        "name": "Práctica educativa, carga de trabajo y calidad",
+        "purpose": "Separar adopción, ahorro de tiempo, calidad docente, aprendizaje, evaluación, feedback y gobernanza.",
+        "axis_covered": ["actividad pedagógica", "rol docente", "outcome educativo", "carga de trabajo", "gobernanza"],
+        "queries_by_source": {
+          "openalex": ["\"generative AI\" \"higher education\" faculty workload", "\"artificial intelligence\" university teaching quality"],
+          "crossref": ["\"generative AI\" \"higher education\" faculty workload", "\"artificial intelligence\" university teaching quality"],
+          "semanticscholar": ["generative AI higher education faculty workload", "artificial intelligence university teaching quality"],
+          "arxiv": ["all:\"generative AI\" AND all:\"higher education\" AND all:faculty"]
+        }
+      }
+    },
+    {
+      "id": "political-leadership-firms",
+      "match_any": ["liderazgo corporativo", "corporate leadership", "ceo", "top management team", "tmt"],
+      "require_any": ["ideologia politica", "political ideology", "political orientation", "partisanship"],
+      "review_modes": ["management", "social_sciences", "mixed"],
+      "stage": {
+        "name": "Ideología, mecanismo y decisión estratégica",
+        "purpose": "Conectar medición ideológica, nivel directivo, mecanismo organizativo, decisión de firma e identificación causal.",
+        "axis_covered": ["ideología", "liderazgo", "mecanismo", "decisión estratégica", "endogeneidad"],
+        "queries_by_source": {
+          "openalex": ["\"CEO political ideology\" \"strategic decisions\"", "\"top management team\" political ideology firm"],
+          "crossref": ["\"CEO political ideology\" \"strategic decisions\"", "\"top management team\" political ideology firm"],
+          "semanticscholar": ["CEO political ideology strategic decisions", "top management team political ideology firm"]
+        }
+      }
+    },
+    {
+      "id": "llm-system-architectures",
+      "match_any": ["llm architecture", "arquitecturas de llm", "ai system architecture", "arquitecturas de sistemas de ia"],
+      "require_any": ["llm", "large language model", "modelo de lenguaje", "sistema de ia"],
+      "review_modes": ["technical", "mixed"],
+      "stage": {
+        "name": "Configuración completa y evaluación",
+        "purpose": "Comparar arquitectura, memoria, herramientas, coordinación, benchmark, coste, latencia y robustez.",
+        "axis_covered": ["arquitectura", "componentes", "benchmark", "coste", "robustez", "reproducibilidad"],
+        "queries_by_source": {
+          "openalex": ["\"LLM system architecture\" memory tools evaluation", "\"AI agent architecture\" benchmark robustness"],
+          "crossref": ["\"LLM system architecture\" memory tools evaluation"],
+          "semanticscholar": ["LLM system architecture memory tools evaluation", "AI agent architecture benchmark robustness"],
+          "arxiv": ["all:\"LLM system architecture\" AND all:evaluation", "all:\"AI agent architecture\" AND all:benchmark"]
+        }
+      }
+    }
+  ]
+}

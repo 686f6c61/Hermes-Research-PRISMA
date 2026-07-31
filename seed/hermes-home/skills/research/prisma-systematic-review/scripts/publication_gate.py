@@ -12,6 +12,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from artifact_contracts import write_json_atomic
 from review_mode_router import MODE_CONFIG
 
 FALLBACK_EXTRACTION_MARKERS = [
@@ -170,6 +171,13 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
     review_mode_md = review_dir / "protocol" / "review-mode.md"
     review_mode_json = review_dir / "protocol" / "review-mode.json"
     review_mode_payload = read_json(review_mode_json)
+    contracts_manifest = review_dir / "protocol" / "contracts-manifest.json"
+    evidence_coverage = read_json(review_dir / "paper" / "audit" / "evidence-coverage.json")
+    schema_validation = read_json(review_dir / "paper" / "audit" / "schema-validation.json")
+    intake_contract = read_json(review_dir / "protocol" / "intake.json")
+    human_adjudication = read_json(review_dir / "paper" / "audit" / "human-adjudication.json")
+    delivery_guide = review_dir / "paper" / "package" / "index.html"
+    deliverables_manifest = review_dir / "paper" / "package" / "deliverables-manifest.json"
 
     checks: list[Check] = []
 
@@ -196,6 +204,42 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
             "Existe modo metodológico persistido antes del cierre editorial."
             if review_mode_md.exists() and review_mode_json.exists()
             else "Faltan protocol/review-mode.md o protocol/review-mode.json; la revisión no puede cerrarse sin lógica disciplinar declarada.",
+        )
+    )
+    checks.append(
+        Check(
+            "contratos_versionados",
+            "PASS" if contracts_manifest.exists() and contracts_manifest.stat().st_size > 0 else "FAIL",
+            "Los contratos de intake, método, síntesis, outlet y entrega están materializados."
+            if contracts_manifest.exists() and contracts_manifest.stat().st_size > 0
+            else "Falta `protocol/contracts-manifest.json`; el método no está congelado en forma machine-readable.",
+        )
+    )
+    checks.append(
+        Check(
+            "esquemas_versionados",
+            "PASS" if schema_validation.get("status") == "pass" else "FAIL",
+            (
+                f"Contratos comprobados: {schema_validation.get('checks_total', 0)}; "
+                f"fallos: {schema_validation.get('checks_failed', 0)}."
+            ),
+        )
+    )
+    validation_mode = str(intake_contract.get("validation_mode") or "autonomous").lower()
+    adjudication_approved = (
+        str(human_adjudication.get("decision") or "").lower() in {"approved", "approve", "pass"}
+        and bool(human_adjudication.get("reviewer"))
+        and bool(human_adjudication.get("timestamp"))
+    )
+    checks.append(
+        Check(
+            "politica_validacion",
+            "PASS" if validation_mode != "adjudicated" or adjudication_approved else "FAIL",
+            (
+                f"Modo `{validation_mode}` satisfecho."
+                if validation_mode != "adjudicated" or adjudication_approved
+                else "El intake exige adjudicación: falta una aprobación completa en `paper/audit/human-adjudication.json`."
+            ),
         )
     )
     mode_playbook_keys = [
@@ -638,6 +682,40 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
             else "Falta el zip LaTeX editable para Overleaf o adaptación editorial.",
         )
     )
+    evidence_status = str(evidence_coverage.get("status") or "fail").lower()
+    if evidence_status == "pass":
+        evidence_gate_status = "PASS"
+    elif evidence_status == "warn":
+        evidence_gate_status = "WARN"
+    else:
+        evidence_gate_status = "FAIL"
+    checks.append(
+        Check(
+            "cobertura_afirmacion_evidencia",
+            evidence_gate_status,
+            (
+                f"Afirmaciones críticas: {evidence_coverage.get('critical_claims', 0)}; "
+                f"localizadas: {evidence_coverage.get('critical_located', 0)}; "
+                f"parciales: {evidence_coverage.get('critical_partial', 0)}; "
+                f"sin DOI enlazado: {evidence_coverage.get('critical_unsupported', 0)}."
+            ),
+        )
+    )
+    guide_ready = (
+        delivery_guide.exists()
+        and delivery_guide.stat().st_size > 0
+        and deliverables_manifest.exists()
+        and deliverables_manifest.stat().st_size > 0
+    )
+    checks.append(
+        Check(
+            "guia_entrega",
+            "PASS" if guide_ready else "FAIL",
+            "El paquete incluye una guía HTML y un manifiesto verificable de entregables."
+            if guide_ready
+            else "Faltan `paper/package/index.html` o `paper/package/deliverables-manifest.json`.",
+        )
+    )
 
     source_visual_assets = len(figure_evidence) + len(table_evidence)
     checks.append(
@@ -697,6 +775,9 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
         "pdf_ready": int(manuscript_pdf.exists() and manuscript_pdf.stat().st_size > 0),
         "latex_bundle_ready": int(latex_bundle.exists() and latex_bundle.stat().st_size > 0),
         "review_mode_ready": int(review_mode_md.exists() and review_mode_json.exists()),
+        "contracts_ready": int(contracts_manifest.exists() and contracts_manifest.stat().st_size > 0),
+        "evidence_coverage_status": evidence_status,
+        "delivery_guide_ready": int(guide_ready),
     }
     return overall, checks, metrics
 
@@ -743,6 +824,23 @@ def render_report(review_dir: pathlib.Path, overall: str, checks: list[Check], m
     out = review_dir / "paper" / "audit" / "publication-gate.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_json_atomic(
+        out.with_suffix(".json"),
+        {
+            "schema_version": "hermes.publication-gate/v1",
+            "generated_at": now,
+            "status": overall.lower(),
+            "checks": [
+                {
+                    "name": check.name,
+                    "status": check.status.lower(),
+                    "detail": check.detail,
+                }
+                for check in checks
+            ],
+            "metrics": metrics,
+        },
+    )
     return out
 
 

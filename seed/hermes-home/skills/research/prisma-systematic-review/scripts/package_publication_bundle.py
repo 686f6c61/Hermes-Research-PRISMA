@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import io
+import json
 import pathlib
 import re
 import shutil
@@ -12,6 +15,7 @@ import unicodedata
 import zipfile
 from datetime import datetime, timezone
 
+from delivery_portal import build_delivery_assets, render_html
 from publication_audit import stage_data_annexes
 
 ROOT_FILES = [
@@ -23,6 +27,12 @@ ROOT_FILES = [
     ("paper/references/references.generated.bib", "paper/references/references.generated.bib"),
     ("paper/audit/publication-audit.md", "paper/audit/publication-audit.md"),
     ("paper/audit/publication-gate.md", "paper/audit/publication-gate.md"),
+    ("paper/audit/publication-gate.json", "paper/audit/publication-gate.json"),
+    ("paper/audit/model-provenance.csv", "paper/audit/model-provenance.csv"),
+    ("paper/audit/model-capabilities.json", "paper/audit/model-capabilities.json"),
+    ("paper/audit/claim-evidence-ledger.csv", "paper/audit/claim-evidence-ledger.csv"),
+    ("paper/audit/evidence-coverage.md", "paper/audit/evidence-coverage.md"),
+    ("paper/audit/evidence-coverage.json", "paper/audit/evidence-coverage.json"),
     ("paper/audit/integrity-audit/integrity-audit.md", "paper/audit/integrity-audit/integrity-audit.md"),
     ("paper/audit/integrity-audit/integrity-audit.json", "paper/audit/integrity-audit/integrity-audit.json"),
     ("paper/journal-readiness/journal-readiness-report.md", "paper/journal-readiness/journal-readiness-report.md"),
@@ -45,6 +55,15 @@ ROOT_FILES = [
     ("paper/journal-readiness/journal-fit-report.md", "paper/journal-readiness/journal-fit-report.md"),
     ("protocol/review-mode.md", "protocol/review-mode.md"),
     ("protocol/review-mode.json", "protocol/review-mode.json"),
+    ("protocol/intake.json", "protocol/intake.json"),
+    ("protocol/method-contract.json", "protocol/method-contract.json"),
+    ("protocol/synthesis-plan.json", "protocol/synthesis-plan.json"),
+    ("protocol/journal-profile.json", "protocol/journal-profile.json"),
+    ("protocol/deliverables-contract.json", "protocol/deliverables-contract.json"),
+    ("protocol/contracts-manifest.json", "protocol/contracts-manifest.json"),
+    ("protocol/amendments.jsonl", "protocol/amendments.jsonl"),
+    ("notes/pipeline-state.json", "notes/pipeline-state.json"),
+    ("notes/job-ledger.json", "notes/job-ledger.json"),
     ("selection/n-range-audit.md", "selection/n-range-audit.md"),
     ("paper/review/peer-review-overview.md", "paper/review/peer-review-overview.md"),
     ("paper/review/review-packet/review-packet.md", "paper/review/review-packet/review-packet.md"),
@@ -58,6 +77,24 @@ APA_REFERENCE_RE = re.compile(r"^(?P<authors>.+?)\s+\((?P<year>\d{4})\)\.\s+(?P<
 URL_RE = re.compile(r"(https?://\S+)$")
 ARTICLE_VENUE_RE = re.compile(r"^(?P<journal>[^,]+),\s*(?P<volume>\d+)(?:\((?P<number>[^)]+)\))?,\s*(?P<pages>\d+(?:-\d+)?)\.?$")
 CONFERENCE_HINT_RE = re.compile(r"\b(conference|proceedings|workshop|symposium|neurips|iclr|icml|acl|emnlp|naacl|cvpr|aaai|coling)\b", re.IGNORECASE)
+INTERNAL_RECORD_RE = re.compile(r"RID-[A-F0-9]{6,}", re.IGNORECASE)
+LOCAL_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![:/A-Za-z0-9_])/(?:Applications|Users|home|private/var/folders)/"
+    r"[^,\n\r\"'<>]+"
+)
+PUBLIC_TEXT_SUFFIXES = {
+    ".bib",
+    ".csv",
+    ".gexf",
+    ".graphml",
+    ".html",
+    ".json",
+    ".jsonl",
+    ".md",
+    ".svg",
+    ".tex",
+    ".txt",
+}
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -138,19 +175,205 @@ def classify_target_outlet(raw: str) -> tuple[str, str]:
     return "specific-target-outlet", value
 
 
-def latex_plain_name(path: pathlib.Path) -> str:
-    return path.name
+def normalize_doi(value: str) -> str:
+    """Return a bare DOI suitable for reader-facing identities."""
+    doi = str(value or "").strip()
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi, flags=re.IGNORECASE)
+    doi = re.sub(r"^doi:\s*", "", doi, flags=re.IGNORECASE)
+    return doi.strip().lower()
 
 
-def safe_add_file(
+def record_doi_map(review_dir: pathlib.Path) -> dict[str, str]:
+    """Map private runtime record IDs to the DOI used in public artifacts."""
+    mapping: dict[str, str] = {}
+    sources = [
+        review_dir / "records" / "master-records.csv",
+        review_dir / "screening" / "title-abstract.csv",
+        review_dir / "screening" / "full-text.csv",
+        review_dir / "selection" / "ultraquality-shortlist.csv",
+        review_dir / "extraction" / "extraction-table.csv",
+    ]
+    for source in sources:
+        if not source.exists():
+            continue
+        with source.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                record_id = str(row.get("record_id") or "").strip().lower()
+                doi = normalize_doi(str(row.get("assigned_doi") or row.get("doi") or ""))
+                if record_id and doi:
+                    mapping[record_id] = doi
+    return mapping
+
+
+def doi_file_token(doi: str) -> str:
+    """Render a DOI as a portable filename without losing its identity."""
+    return re.sub(r"[^a-z0-9._-]+", "-", normalize_doi(doi)).strip("-")
+
+
+def replace_private_runtime_values(
+    value: str,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> str:
+    """Remove local paths and internal IDs from reader-facing text."""
+    text = str(value or "")
+    text = text.replace(str(review_dir), ".")
+    review_name = re.escape(review_dir.name)
+    # Artifacts can retain paths from the machine that originally built the
+    # review, not only from the current staging copy. Anchor on the stable
+    # review folder name and collapse every machine-specific prefix.
+    text = re.sub(
+        rf"(?:/(?!/)[^,\n\r\"'<>]+?)*?/{review_name}(?=/|\b)",
+        ".",
+        text,
+    )
+    text = LOCAL_ABSOLUTE_PATH_RE.sub("<LOCAL_PATH>", text)
+
+    def replace_id(match: re.Match[str]) -> str:
+        record_id = match.group(0).lower()
+        return id_to_doi.get(record_id, "NO-DOI-EXCLUDED")
+
+    return INTERNAL_RECORD_RE.sub(replace_id, text)
+
+
+def public_relative_path(relative: str, id_to_doi: dict[str, str]) -> str:
+    """Translate RID-based filenames to DOI-based names or omit them."""
+    matches = list(INTERNAL_RECORD_RE.finditer(relative))
+    public = relative
+    for match in matches:
+        doi = id_to_doi.get(match.group(0).lower())
+        if not doi:
+            return ""
+        public = public.replace(match.group(0), doi_file_token(doi))
+        public = public.replace(match.group(0).lower(), doi_file_token(doi))
+    return public
+
+
+def public_csv_bytes(
+    source: pathlib.Path,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> bytes:
+    """Serialize a CSV without private record IDs or machine-local paths."""
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        original_fields = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    fields: list[str] = []
+    for field in original_fields:
+        if field == "record_id":
+            continue
+        public_field = "doi" if field == "assigned_doi" else field
+        if public_field not in fields:
+            fields.append(public_field)
+
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        rendered: dict[str, str] = {}
+        record_id = str(row.get("record_id") or "").strip().lower()
+        mapped_doi = id_to_doi.get(record_id, "")
+        for field in original_fields:
+            if field == "record_id":
+                continue
+            public_field = "doi" if field == "assigned_doi" else field
+            value = str(row.get(field) or "")
+            if public_field == "doi":
+                value = normalize_doi(value) or mapped_doi
+            elif value.strip() in {"record_id", "assigned_doi"}:
+                # Long-form tables encode the original column name as data.
+                value = "doi"
+            rendered[public_field] = replace_private_runtime_values(
+                value,
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+        writer.writerow(rendered)
+    return output.getvalue().encode("utf-8")
+
+
+def public_file_bytes(
+    source: pathlib.Path,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> bytes:
+    """Return the exact sanitized bytes stored in the publication archive."""
+    if source.suffix.lower() == ".csv":
+        return public_csv_bytes(source, review_dir=review_dir, id_to_doi=id_to_doi)
+    if source.suffix.lower() in PUBLIC_TEXT_SUFFIXES:
+        text = source.read_text(encoding="utf-8", errors="ignore")
+        return replace_private_runtime_values(
+            text,
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
+        ).encode("utf-8")
+    return source.read_bytes()
+
+
+def add_public_file(
     archive: zipfile.ZipFile,
     source: pathlib.Path,
     archive_name: str,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
 ) -> bool:
+    """Add one public artifact using sanitized content and DOI-based paths."""
     if not source.exists() or not source.is_file():
         return False
-    archive.write(source, archive_name)
+    public_name = public_relative_path(archive_name, id_to_doi)
+    if not public_name:
+        return False
+    archive.writestr(
+        public_name,
+        public_file_bytes(source, review_dir=review_dir, id_to_doi=id_to_doi),
+    )
     return True
+
+
+def public_delivery_manifest(
+    manifest: dict[str, object],
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> dict[str, object]:
+    """Recompute manifest paths, sizes, and hashes for the sanitized ZIP."""
+    public_manifest = json.loads(json.dumps(manifest))
+    for category in public_manifest.get("categories", []):
+        files: list[dict[str, object]] = []
+        for item in category.get("files", []):
+            relative = str(item.get("path") or "")
+            public_relative = public_relative_path(relative, id_to_doi)
+            source = review_dir / relative
+            if not public_relative or not source.is_file():
+                continue
+            payload = public_file_bytes(source, review_dir=review_dir, id_to_doi=id_to_doi)
+            files.append(
+                {
+                    "path": public_relative,
+                    "size": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+        category["files"] = files
+        category["file_count"] = len(files)
+        category["byte_count"] = sum(int(item["size"]) for item in files)
+        requested_start = public_relative_path(
+            str(category.get("start_path") or ""),
+            id_to_doi,
+        )
+        available_paths = {str(item["path"]) for item in files}
+        category["start_path"] = (
+            requested_start
+            if requested_start in available_paths
+            else (str(files[0]["path"]) if files else "")
+        )
+    return public_manifest
 
 
 def selected_metadata_rows(review_dir: pathlib.Path) -> list[dict[str, str]]:
@@ -391,6 +614,8 @@ def write_readme(
     page_render_assets: list[pathlib.Path],
     table_assets: list[pathlib.Path],
     manuscript_assets: list[pathlib.Path],
+    analysis_assets: list[pathlib.Path],
+    id_to_doi: dict[str, str],
 ) -> None:
     now = datetime.now(timezone.utc).astimezone().isoformat()
     outlet_mode, outlet_value = classify_target_outlet(declared_target_outlet(review_dir))
@@ -398,7 +623,7 @@ def write_readme(
     lines = [
         "# Publication Package",
         "",
-        f"- Review workspace: `{review_dir}`",
+        f"- Review workspace: `{review_dir.name}`",
         f"- Generated at: `{now}`",
         f"- Editorial profile: `{target_outlet}`",
         *([f"- Intake thematic band: `{outlet_value}`"] if outlet_mode == "generic-common-core" and outlet_value else []),
@@ -414,6 +639,7 @@ def write_readme(
         "5. Inspect `figures/png/` and `figures/svg/` for the final publication figures, then `figures/extracted/` and `tables/extracted/` for source evidence.",
         "6. Use `figures/page-renders/` only as diagnostic fallback material when a PDF page had to be preserved for audit support.",
         "7. Consult `fulltext/pdf/` when you need to audit a focal study at the source-document level.",
+        "8. Open `analysis/atlas/network-atlas.html` for the offline structural atlas and use `analysis/audit/` before interpreting communities or centrality.",
         "",
         "## Canonical vs derived artifacts",
         "- Canonical article text: `paper/manuscript/publication-ready.md`",
@@ -425,6 +651,7 @@ def write_readme(
         "- Derived publication visuals: `figures/png/`, `figures/svg/`",
         "- Derived source evidence: `figures/extracted/`, `tables/extracted/`",
         "- Diagnostic page renders: `figures/page-renders/`",
+        "- Structural analysis: `analysis/`, with an offline atlas, metrics, GraphML, coverage and provenance",
         "",
         "## Included content",
         "- Main manuscript: `paper/manuscript/publication-ready.md`",
@@ -443,6 +670,7 @@ def write_readme(
         "- Extracted visual evidence: `figures/extracted/`",
         "- Diagnostic page renders kept outside the manuscript evidence stream: `figures/page-renders/`",
         "- Extracted tabular evidence: `tables/extracted/`",
+        "- Structural atlas and auditable network data: `analysis/`",
         "- Generated references and publication audits",
         "",
         "## Editorial checklist",
@@ -455,6 +683,7 @@ def write_readme(
         f"- Diagnostic page renders bundled: {len(page_render_assets)}",
         f"- Tabular evidence assets bundled: {len(table_assets)}",
         f"- Manuscript-local assets bundled: {len(manuscript_assets)}",
+        f"- Structural-analysis assets bundled: {len(analysis_assets)}",
         "",
         "## How to use this package",
         "- If you want to audit the review: compare the manuscript claims with `paper/appendices/data/*.csv`, then open the corresponding `fulltext/pdf/*.pdf` and source evidence assets.",
@@ -463,6 +692,7 @@ def write_readme(
         "- If you want to reuse visuals: use `figures/png/` for direct insertion and `figures/svg/` when you need editable vector assets.",
         "- If you want to inspect study-level evidence: use `figures/extracted/`, `tables/extracted/`, and the focal PDFs together.",
         "- If you need fallback audit material: `figures/page-renders/` contains full-page renders preserved as diagnostics, not as publication-ready figures.",
+        "- If you want to inspect relationships: open `analysis/atlas/network-atlas.html`; read `analysis/audit/coverage.json` before interpreting centrality or communities.",
         "",
         "## Traceability annexes",
     ]
@@ -512,7 +742,9 @@ def write_readme(
     )
     if focal_pdfs:
         for path in focal_pdfs:
-            lines.append(f"- `fulltext/pdf/{path.name}`")
+            public_name = public_relative_path(path.name, id_to_doi)
+            if public_name:
+                lines.append(f"- `fulltext/pdf/{public_name}`")
     else:
         lines.append("- No focal PDFs were found.")
     lines.extend(
@@ -539,6 +771,13 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
     write_generated_bibtex(review_dir)
 
     annex_paths = stage_data_annexes(review_dir)
+    _workspace_guide, _workspace_manifest, delivery_manifest = build_delivery_assets(review_dir)
+    id_to_doi = record_doi_map(review_dir)
+    public_manifest = public_delivery_manifest(
+        delivery_manifest,
+        review_dir=review_dir,
+        id_to_doi=id_to_doi,
+    )
     rendered_pngs = sorted(
         path
         for path in (review_dir / "figures" / "png").glob("*.png")
@@ -554,6 +793,11 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
     page_render_assets = collect_tree_files(review_dir / "figures" / "page-renders")
     table_assets = collect_tree_files(review_dir / "tables" / "extracted")
     manuscript_assets = collect_tree_files(review_dir / "paper" / "manuscript" / "figures")
+    analysis_assets = [
+        path
+        for path in collect_tree_files(review_dir / "analysis")
+        if "cache" not in path.relative_to(review_dir / "analysis").parts
+    ]
     figure_manifest = review_dir / "figures" / "evidence-manifest.csv"
     page_render_manifest = review_dir / "figures" / "page-render-manifest.csv"
     table_manifest = review_dir / "tables" / "evidence-manifest.csv"
@@ -572,6 +816,14 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
         shutil.rmtree(extracted_bundle_dir)
 
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"{archive_root}/index.html",
+            render_html(public_manifest, link_prefix=""),
+        )
+        archive.writestr(
+            f"{archive_root}/deliverables-manifest.json",
+            json.dumps(public_manifest, ensure_ascii=False, indent=2) + "\n",
+        )
         write_readme(
             archive,
             archive_root,
@@ -584,121 +836,200 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
             page_render_assets,
             table_assets,
             manuscript_assets,
+            analysis_assets,
+            id_to_doi,
         )
 
         for rel_source, rel_target in ROOT_FILES:
-            safe_add_file(archive, review_dir / rel_source, f"{archive_root}/{rel_target}")
+            add_public_file(
+                archive,
+                review_dir / rel_source,
+                f"{archive_root}/{rel_target}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
 
         for path in annex_paths:
-            safe_add_file(
+            add_public_file(
                 archive,
                 path,
                 f"{archive_root}/paper/appendices/data/{path.name}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for png_path in rendered_pngs:
-            safe_add_file(
+            add_public_file(
                 archive,
                 png_path,
                 f"{archive_root}/figures/png/{png_path.name}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for svg_path in rendered_svgs:
-            safe_add_file(
+            add_public_file(
                 archive,
                 svg_path,
                 f"{archive_root}/figures/svg/{svg_path.name}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for asset_path in manuscript_assets:
             relative_asset = asset_path.relative_to(review_dir / "paper" / "manuscript").as_posix()
-            safe_add_file(
+            add_public_file(
                 archive,
                 asset_path,
                 f"{archive_root}/paper/manuscript/{relative_asset}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
-        safe_add_file(
+        for asset_path in analysis_assets:
+            relative_asset = asset_path.relative_to(review_dir / "analysis").as_posix()
+            add_public_file(
+                archive,
+                asset_path,
+                f"{archive_root}/analysis/{relative_asset}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+
+        add_public_file(
             archive,
             figure_manifest,
             f"{archive_root}/figures/evidence-manifest.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             page_render_manifest,
             f"{archive_root}/figures/page-render-manifest.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             table_manifest,
             f"{archive_root}/tables/evidence-manifest.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             figure_catalog,
             f"{archive_root}/figures/figure-catalog.md",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             figure_ranking_csv,
             f"{archive_root}/figures/figure-ranking.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             figure_ranking_md,
             f"{archive_root}/figures/figure-ranking.md",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             mode_figure_plan_md,
             f"{archive_root}/figures/mode-figure-plan.md",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             mode_figure_plan_csv,
             f"{archive_root}/figures/mode-figure-plan.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             mode_table_plan_md,
             f"{archive_root}/tables/mode-table-plan.md",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
-        safe_add_file(
+        add_public_file(
             archive,
             mode_table_plan_csv,
             f"{archive_root}/tables/mode-table-plan.csv",
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
         )
 
         for pdf_path in focal_pdfs:
-            safe_add_file(
+            add_public_file(
                 archive,
                 pdf_path,
                 f"{archive_root}/fulltext/pdf/{pdf_path.name}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for asset_path in figure_assets:
             relative_asset = asset_path.relative_to(review_dir / "figures" / "extracted").as_posix()
-            safe_add_file(
+            add_public_file(
                 archive,
                 asset_path,
                 f"{archive_root}/figures/extracted/{relative_asset}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for asset_path in page_render_assets:
             relative_asset = asset_path.relative_to(review_dir / "figures" / "page-renders").as_posix()
-            safe_add_file(
+            add_public_file(
                 archive,
                 asset_path,
                 f"{archive_root}/figures/page-renders/{relative_asset}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
 
         for asset_path in table_assets:
             relative_asset = asset_path.relative_to(review_dir / "tables" / "extracted").as_posix()
-            safe_add_file(
+            add_public_file(
                 archive,
                 asset_path,
                 f"{archive_root}/tables/extracted/{relative_asset}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
             )
+
+        # The delivery manifest is the final source of truth for portable
+        # artifacts. Add any declared file not already covered by the legacy
+        # publication loops, while retaining the curated archive layout.
+        existing_names = set(archive.namelist())
+        for category in delivery_manifest.get("categories", []):
+            for item in category.get("files", []):
+                relative = str(item.get("path") or "").strip()
+                if not relative:
+                    continue
+                source = review_dir / relative
+                public_relative = public_relative_path(relative, id_to_doi)
+                if not public_relative:
+                    continue
+                archive_name = f"{archive_root}/{public_relative}"
+                if archive_name in existing_names:
+                    continue
+                if add_public_file(
+                    archive,
+                    source,
+                    archive_name,
+                    review_dir=review_dir,
+                    id_to_doi=id_to_doi,
+                ):
+                    existing_names.add(archive_name)
 
     return bundle_path
 

@@ -9,6 +9,7 @@ umask 077
 
 image_ref="${HERMES_IMAGE_REF:-hermes-agent-local:v2026.7.20-public}"
 hermes_commit="3ef6bbd201263d354fd83ec55b3c306ded2eb72a"
+version="$(package_version)"
 skip_build="${1:-}"
 host_uid="$(id -u)"
 host_gid="$(id -g)"
@@ -93,7 +94,8 @@ plugin_status="$(
   docker run --entrypoint hermes "${common_run_args[@]}" \
     plugins list --plain --no-bundled
 )"
-grep -Eq '^enabled[[:space:]]+user[[:space:]]+0\.3\.0[[:space:]]+hermes_research$' \
+escaped_version="${version//./\\.}"
+grep -Eq "^enabled[[:space:]]+user[[:space:]]+${escaped_version}[[:space:]]+hermes_research$" \
   <<<"${plugin_status}" || fail "hermes_research was not enabled"
 
 docker run --entrypoint python "${common_run_args[@]}" -c '

@@ -20,3 +20,4 @@ Use these dimensions as a stable spine for review output:
 - `Critical`: blocks trust in the central result or contribution
 - `Major`: materially weakens publishability
 - `Minor`: improves clarity, precision, or packaging
+

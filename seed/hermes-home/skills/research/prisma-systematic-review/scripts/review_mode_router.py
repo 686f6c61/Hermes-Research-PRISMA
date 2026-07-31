@@ -631,6 +631,34 @@ MODE_PUBLICATION_PLAYBOOK: dict[str, dict[str, object]] = {
 }
 
 
+def _load_declarative_profiles() -> None:
+    """Apply versioned profile overrides without making configuration mandatory."""
+    path = pathlib.Path(__file__).resolve().parent.parent / "config" / "methodology-profiles.json"
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if payload.get("schema_version") != "hermes.methodology-profiles/v1":
+        return
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict):
+        return
+    for mode, profile in profiles.items():
+        if mode not in MODE_CONFIG or not isinstance(profile, dict):
+            continue
+        config_override = profile.get("config")
+        playbook_override = profile.get("publication_playbook")
+        if isinstance(config_override, dict):
+            MODE_CONFIG[mode].update(deepcopy(config_override))
+        if isinstance(playbook_override, dict):
+            MODE_PUBLICATION_PLAYBOOK[mode].update(deepcopy(playbook_override))
+
+
+_load_declarative_profiles()
+
+
 MODE_MARKERS: dict[str, tuple[str, ...]] = {
     "biomedical": (
         "clinical", "clinico", "clinica", "patient", "paciente", "hospital", "health", "salud",

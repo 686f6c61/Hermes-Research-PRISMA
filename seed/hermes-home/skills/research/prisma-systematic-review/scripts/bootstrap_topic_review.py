@@ -1865,6 +1865,69 @@ def normalize_search_decomposition(raw: dict | None, fallback: dict[str, object]
     }
 
 
+def load_topic_packs() -> list[dict[str, object]]:
+    """Load optional topic extensions from a versioned declarative catalog."""
+    path = pathlib.Path(__file__).resolve().parent.parent / "config" / "topic-packs.json"
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if payload.get("schema_version") != "hermes.topic-packs/v1":
+        return []
+    packs = payload.get("packs")
+    return [pack for pack in packs if isinstance(pack, dict)] if isinstance(packs, list) else []
+
+
+def apply_topic_packs(
+    decomposition: dict[str, object],
+    *,
+    topic: str,
+    question: str,
+    inclusion: str,
+    mode_decision: dict[str, object],
+) -> dict[str, object]:
+    """Append matched search stages without changing the original question."""
+    scope = normalize_title(" ".join([topic, question, inclusion]))
+    mode = str(mode_decision.get("mode") or "")
+    primary_mode = str(mode_decision.get("primary_mode") or mode)
+    stages = list(decomposition.get("search_stages") or [])
+    matched_ids: list[str] = []
+    for pack in load_topic_packs():
+        allowed_modes = [str(item) for item in pack.get("review_modes") or []]
+        if allowed_modes and mode not in allowed_modes and primary_mode not in allowed_modes:
+            continue
+        match_any = [normalize_title(str(item)) for item in pack.get("match_any") or []]
+        require_any = [normalize_title(str(item)) for item in pack.get("require_any") or []]
+        if match_any and not any(token and token in scope for token in match_any):
+            continue
+        if require_any and not any(token and token in scope for token in require_any):
+            continue
+        stage = pack.get("stage")
+        if not isinstance(stage, dict):
+            continue
+        queries = source_queries_from_stage(stage)
+        if not any(queries.values()):
+            continue
+        pack_id = str(pack.get("id") or f"topic-pack-{len(matched_ids) + 1}")
+        stages.append(
+            {
+                "stage_id": f"TP{len(matched_ids) + 1}",
+                "name": str(stage.get("name") or pack_id),
+                "purpose": str(stage.get("purpose") or "Declarative topic coverage."),
+                "axis_covered": list(stage.get("axis_covered") or []),
+                "queries_by_source": queries,
+                "topic_pack": pack_id,
+            }
+        )
+        matched_ids.append(pack_id)
+    enriched = dict(decomposition)
+    enriched["search_stages"] = stages
+    enriched["topic_packs"] = matched_ids
+    return enriched
+
+
 def build_deterministic_search_decomposition(
     topic: str,
     question: str,
@@ -3301,6 +3364,13 @@ def main() -> int:
     mode_decision = infer_review_mode_from_intake(intake_path, topic, question, inclusion, exclusion)
     write_review_mode_artifacts(review_dir, mode_decision)
     decomposition = build_search_decomposition(topic, question, inclusion, exclusion, mode_decision)
+    decomposition = apply_topic_packs(
+        decomposition,
+        topic=topic,
+        question=question,
+        inclusion=inclusion,
+        mode_decision=mode_decision,
+    )
     plan = extend_search_plan(flatten_search_plan(decomposition), topic, question, inclusion, mode_decision)
     if not any(plan.values()):
         plan = extend_search_plan(normalize_plan(query_plan(topic, question, inclusion)), topic, question, inclusion, mode_decision)

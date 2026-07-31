@@ -1,5 +1,9 @@
 *
 !.dockerignore
+!Dockerfile
 !Dockerfile.research
+!nginx.conf
+!landing/
+!landing/**
 !build/
 !build/security-constraints.txt

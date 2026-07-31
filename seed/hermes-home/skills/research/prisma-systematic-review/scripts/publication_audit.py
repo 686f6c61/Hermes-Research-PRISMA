@@ -11460,6 +11460,54 @@ def build_editorial_statements_section(context: dict[str, str]) -> str:
     ) + "\n"
 
 
+def build_network_method_subsection(review_dir: pathlib.Path) -> str:
+    summary_path = review_dir / "analysis" / "metrics" / "network-summary.json"
+    if not summary_path.exists():
+        return ""
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    coverage = payload.get("coverage", {})
+    denominator = int(coverage.get("denominator") or 0)
+    if denominator <= 0:
+        return ""
+    author_coverage = float(coverage.get("authors", {}).get("coverage") or 0.0)
+    reference_coverage = float(coverage.get("references", {}).get("coverage") or 0.0)
+    keyword_coverage = float(coverage.get("keywords", {}).get("coverage") or 0.0)
+    return (
+        "\n## Análisis estructural del corpus\n\n"
+        "Como análisis complementario, se construyeron redes separadas de coautoría, citación, "
+        "acoplamiento bibliográfico, cocitación, coocurrencia temática y relaciones entre estudios "
+        "y dimensiones extraídas. La unidad de identidad de estudio fue el DOI normalizado. Se "
+        "calcularon grado ponderado, intermediación, centralidad armónica, PageRank, centralidad de "
+        "autovector, núcleo k, clustering y participación entre comunidades. La intermediación "
+        "ponderada convirtió la fuerza de vínculo en distancia mediante $d_{ij}=1/w_{ij}$.\n\n"
+        "Las comunidades se estimaron con Louvain para múltiples semillas y resoluciones; la "
+        "partición de mayor modularidad se contrastó mediante información mutua normalizada. Su "
+        "interpretación exigió al menos 20 estudios incluidos, estabilidad igual o superior a 0,80 "
+        "y cobertura suficiente de la capa correspondiente. Sobre un denominador de "
+        f"{denominator} estudios, la cobertura fue {author_coverage:.1%} para autoría, "
+        f"{reference_coverage:.1%} para referencias y {keyword_coverage:.1%} para palabras clave. "
+        "La productividad, las citas y la posición de red no intervinieron en la elegibilidad, la "
+        "evaluación crítica ni la selección focal. Los parámetros y denominadores se conservan en "
+        "los anexos estructurales.\n"
+    )
+
+
+def build_network_results_subsection(review_dir: pathlib.Path) -> str:
+    summary_path = review_dir / "analysis" / "summary.md"
+    if not summary_path.exists():
+        return ""
+    content = read_text(summary_path).strip()
+    if not content:
+        return ""
+    lines = content.splitlines()
+    if lines and lines[0].startswith("# "):
+        lines[0] = "## " + lines[0][2:]
+    return "\n" + "\n".join(lines).strip() + "\n"
+
+
 def hydrate_publication_sections(review_dir: pathlib.Path, corpus: dict[str, CorpusRecord]) -> None:
     section_dir = review_dir / "paper" / "sections"
     flow_counts = read_flow_counts(review_dir)
@@ -11511,6 +11559,16 @@ def hydrate_publication_sections(review_dir: pathlib.Path, corpus: dict[str, Cor
             "07-conclusions.md": build_conclusions_section(focus_rows, flow_counts, context),
             "10-editorial-statements.md": build_editorial_statements_section(context),
         }
+    section_builders["04-method.md"] = (
+        section_builders["04-method.md"].rstrip()
+        + build_network_method_subsection(review_dir)
+        + "\n"
+    )
+    section_builders["05-results.md"] = (
+        section_builders["05-results.md"].rstrip()
+        + build_network_results_subsection(review_dir)
+        + "\n"
+    )
     for filename, content in section_builders.items():
         path = section_dir / filename
         write_text(path, content)
@@ -11657,6 +11715,17 @@ def stage_data_annexes(review_dir: pathlib.Path) -> list[pathlib.Path]:
         review_dir / "protocol" / "search-decomposition.md",
         review_dir / "protocol" / "search-decomposition.json",
         review_dir / "protocol" / "search-strategy.md",
+        review_dir / "analysis" / "methodology.md",
+        review_dir / "analysis" / "summary.md",
+        review_dir / "analysis" / "data" / "nodes.csv",
+        review_dir / "analysis" / "data" / "edges.csv",
+        review_dir / "analysis" / "metrics" / "centrality.csv",
+        review_dir / "analysis" / "metrics" / "communities.csv",
+        review_dir / "analysis" / "metrics" / "author-production.csv",
+        review_dir / "analysis" / "metrics" / "selection-drift.csv",
+        review_dir / "analysis" / "audit" / "coverage.json",
+        review_dir / "analysis" / "audit" / "parameters.json",
+        review_dir / "analysis" / "audit" / "provenance.csv",
         checklist_path,
     ]
     staged: list[pathlib.Path] = []
@@ -11670,6 +11739,8 @@ def stage_data_annexes(review_dir: pathlib.Path) -> list[pathlib.Path]:
             dest_name = "figures-page-render-manifest.csv"
         elif source.name == "ultraquality-shortlist.csv":
             dest_name = "selection-audit-matrix.csv"
+        elif "analysis" in source.parts:
+            dest_name = f"network-{source.name}"
         dest = annex_dir / dest_name
         if source.resolve() != dest.resolve():
             shutil.copy2(source, dest)

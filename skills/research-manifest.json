@@ -29,19 +29,27 @@
   {
     "name": "prisma-systematic-review",
     "has_skill": true,
-    "script_count": 30,
+    "script_count": 40,
     "scripts": [
+      "prisma-systematic-review/scripts/artifact_contracts.py",
       "prisma-systematic-review/scripts/audit_review_modes.py",
       "prisma-systematic-review/scripts/bootstrap_architecture_review.py",
       "prisma-systematic-review/scripts/bootstrap_public_intake.py",
       "prisma-systematic-review/scripts/bootstrap_topic_review.py",
+      "prisma-systematic-review/scripts/build_delivery_portal.py",
+      "prisma-systematic-review/scripts/build_evidence_ledger.py",
+      "prisma-systematic-review/scripts/build_review_contracts.py",
       "prisma-systematic-review/scripts/cloud_inference.py",
       "prisma-systematic-review/scripts/complete_review.py",
+      "prisma-systematic-review/scripts/delivery_portal.py",
       "prisma-systematic-review/scripts/docling_extract.py",
       "prisma-systematic-review/scripts/doi_audit.py",
+      "prisma-systematic-review/scripts/evaluate_golden.py",
       "prisma-systematic-review/scripts/export_publication_latex.py",
       "prisma-systematic-review/scripts/journal_readiness_gate.py",
+      "prisma-systematic-review/scripts/model_capability_probe.py",
       "prisma-systematic-review/scripts/package_publication_bundle.py",
+      "prisma-systematic-review/scripts/pipeline_state.py",
       "prisma-systematic-review/scripts/prepare_paper_figures.py",
       "prisma-systematic-review/scripts/publication_audit.py",
       "prisma-systematic-review/scripts/publication_autopilot.py",
@@ -54,15 +62,17 @@
       "prisma-systematic-review/scripts/review_runtime_state.py",
       "prisma-systematic-review/scripts/sync_review_to_obsidian.py",
       "prisma-systematic-review/scripts/telegram_prisma_notify.py",
+      "prisma-systematic-review/scripts/validate_artifact_schemas.py",
       "prisma-systematic-review/scripts/verify_multimodal_pdf.py",
       "prisma-systematic-review/tests/test_cloud_inference.py",
       "prisma-systematic-review/tests/test_docling_extract.py",
       "prisma-systematic-review/tests/test_publication_synthesis.py",
+      "prisma-systematic-review/tests/test_research_delivery_contracts.py",
       "prisma-systematic-review/tests/test_runtime_config.py",
       "prisma-systematic-review/tests/test_search_decomposition.py",
       "prisma-systematic-review/tests/test_verify_multimodal_pdf.py"
     ],
-    "reference_count": 1
+    "reference_count": 2
   },
   {
     "name": "research-integrity-audit",
@@ -70,6 +80,22 @@
     "script_count": 1,
     "scripts": [
       "research-integrity-audit/scripts/check_manuscript_integrity.py"
+    ],
+    "reference_count": 1
+  },
+  {
+    "name": "research-network-analysis",
+    "has_skill": true,
+    "script_count": 8,
+    "scripts": [
+      "research-network-analysis/scripts/build_network_analysis.py",
+      "research-network-analysis/scripts/network_analysis/__init__.py",
+      "research-network-analysis/scripts/network_analysis/enrich.py",
+      "research-network-analysis/scripts/network_analysis/graph_builder.py",
+      "research-network-analysis/scripts/network_analysis/io.py",
+      "research-network-analysis/scripts/network_analysis/metrics.py",
+      "research-network-analysis/scripts/network_analysis/pipeline.py",
+      "research-network-analysis/scripts/network_analysis/render.py"
     ],
     "reference_count": 1
   },

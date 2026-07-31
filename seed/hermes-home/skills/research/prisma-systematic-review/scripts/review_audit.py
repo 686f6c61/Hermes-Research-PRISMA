@@ -436,6 +436,77 @@ def check_ultraquality_selection(path: pathlib.Path, n_limit: int | None) -> Che
     return CheckResult("Ultraquality shortlist", "PASS", f"Shortlist ultraquality documentado con {len(selected_rows)} estudios dentro del límite N={n_limit}.")
 
 
+def check_structural_analysis(analysis_dir: pathlib.Path) -> CheckResult:
+    required = [
+        analysis_dir / "manifest.json",
+        analysis_dir / "methodology.md",
+        analysis_dir / "summary.md",
+        analysis_dir / "atlas" / "network-atlas.html",
+        analysis_dir / "data" / "nodes.csv",
+        analysis_dir / "data" / "edges.csv",
+        analysis_dir / "data" / "graph.graphml",
+        analysis_dir / "metrics" / "network-summary.json",
+        analysis_dir / "metrics" / "centrality.csv",
+        analysis_dir / "metrics" / "communities.csv",
+        analysis_dir / "metrics" / "author-production.csv",
+        analysis_dir / "metrics" / "selection-drift.csv",
+        analysis_dir / "audit" / "coverage.json",
+        analysis_dir / "audit" / "parameters.json",
+        analysis_dir / "audit" / "provenance.csv",
+    ]
+    missing = [str(path.relative_to(analysis_dir)) for path in required if not path.exists()]
+    if missing:
+        return CheckResult(
+            "Structural analysis",
+            "FAIL",
+            "Faltan artefactos estructurales: " + ", ".join(missing) + ".",
+        )
+    try:
+        manifest = json.loads((analysis_dir / "manifest.json").read_text(encoding="utf-8"))
+        coverage = json.loads((analysis_dir / "audit" / "coverage.json").read_text(encoding="utf-8"))
+        parameters = json.loads((analysis_dir / "audit" / "parameters.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return CheckResult("Structural analysis", "FAIL", "Los JSON estructurales no son legibles.")
+    if manifest.get("atlas") != "atlas/network-atlas.html":
+        return CheckResult("Structural analysis", "FAIL", "El manifiesto no declara el atlas offline canónico.")
+    if parameters.get("study_identity") != "normalized_doi":
+        return CheckResult("Structural analysis", "FAIL", "La identidad de estudio no está fijada en DOI normalizado.")
+    headers, node_rows = read_csv(analysis_dir / "data" / "nodes.csv")
+    required_headers = {"node_id", "node_type", "label", "layers"}
+    if not required_headers.issubset(headers):
+        return CheckResult("Structural analysis", "FAIL", "La tabla de nodos no tiene su esquema mínimo.")
+    invalid_study_ids = [
+        row.get("node_id", "")
+        for row in node_rows
+        if row.get("node_type") == "study" and not row.get("node_id", "").startswith("study:10.")
+    ]
+    if invalid_study_ids:
+        return CheckResult(
+            "Structural analysis",
+            "FAIL",
+            f"Hay {len(invalid_study_ids)} nodos de estudio que no usan DOI como identidad.",
+        )
+    denominator = int(coverage.get("denominator") or 0)
+    if denominator <= 0:
+        return CheckResult(
+            "Structural analysis",
+            "WARN",
+            "Los artefactos existen, pero no hay estudios incluidos para interpretar las redes.",
+        )
+    focal_mismatch = int(coverage.get("focal_outside_included_count") or 0)
+    if focal_mismatch:
+        return CheckResult(
+            "Structural analysis",
+            "WARN",
+            f"El atlas es válido, pero el shortlist fuente marcaba {focal_mismatch} DOI focales fuera del corpus incluido.",
+        )
+    return CheckResult(
+        "Structural analysis",
+        "PASS",
+        f"Atlas, métricas y auditoría estructural completos para {denominator} estudios incluidos.",
+    )
+
+
 def phase_status(results: list[CheckResult]) -> str:
     statuses = {result.status for result in results}
     if "FAIL" in statuses:
@@ -466,6 +537,8 @@ def render_final(phases: list[tuple[str, str, list[CheckResult]]]) -> str:
             "- [ ] Confirmar que cada afirmación interpretativa está anclada a uno o varios papers",
             "- [ ] Confirmar que los cambios de modelo y bloqueos están registrados en `notes/decisions.md`",
             "- [ ] Si hay límite final N, confirmar que el shortlist ultraquality justifica por qué entran esos estudios y por qué otros válidos quedan fuera del subconjunto final",
+            "- [ ] Interpretar comunidades y centralidad solo cuando cobertura, tamaño y estabilidad superan los umbrales declarados",
+            "- [ ] Confirmar que productividad, citas y topología no influyeron en inclusión, calidad ni selección focal",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -495,6 +568,7 @@ def main() -> int:
     notes_dir = review_dir / "notes"
     audit_dir = review_dir / "audit"
     figures_dir = review_dir / "figures"
+    analysis_dir = review_dir / "analysis"
     selection_dir = review_dir / "selection"
     n_limit = parse_ultraquality_limit(protocol_dir / "intake.md")
 
@@ -533,7 +607,8 @@ def main() -> int:
         check_exclusion_quality(screening_dir / "full-text.csv", "Full-text exclusion quality"),
     ]
     phase_four = [check_extraction(extraction_dir / "extraction-table.csv")]
-    phase_five = [
+    phase_five = [check_structural_analysis(analysis_dir)]
+    phase_six = [
         check_prisma_counts(prisma_dir / "flow-counts.csv"),
         check_ultraquality_selection(selection_dir / "ultraquality-shortlist.csv", n_limit),
         check_figures(figures_dir),
@@ -546,7 +621,8 @@ def main() -> int:
         ("Fase 2. Búsqueda, DOI y deduplicación", phase_status(phase_two), phase_two),
         ("Fase 3. Screening", phase_status(phase_three), phase_three),
         ("Fase 4. Extracción", phase_status(phase_four), phase_four),
-        ("Fase 5. PRISMA, decisiones y calidad editorial", phase_status(phase_five), phase_five),
+        ("Fase 5. Análisis estructural", phase_status(phase_five), phase_five),
+        ("Fase 6. Síntesis y calidad editorial", phase_status(phase_six), phase_six),
     ]
 
     phase_lines = ["# Phase Audit", ""]

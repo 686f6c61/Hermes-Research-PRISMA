@@ -81,6 +81,12 @@ ALIASES = {
         "revista o medio objetivo (opcional)",
     },
     "target_length": {"longitud objetivo del manuscrito", "longitud objetivo del manuscrito (opcional)"},
+    "validation_mode": {
+        "modo de validacion",
+        "modo de validación",
+        "modo de validacion (opcional)",
+        "modo de validación (opcional)",
+    },
 }
 
 WIZARD_STEPS = [
@@ -225,6 +231,7 @@ def intake_template() -> str:
         "Modo metodológico (opcional):\n"
         "Límite final N:\n"
         "Revista o medio objetivo (opcional):\n"
+        "Modo de validación (opcional):\n"
     )
 
 
@@ -377,6 +384,7 @@ def payload_to_intake_block(payload: dict[str, str]) -> str:
         f"Modo metodológico (opcional): {payload.get('review_mode', '').strip()}\n"
         f"Límite final N: {payload.get('final_n', '37').strip()}\n"
         f"Revista o medio objetivo (opcional): {payload.get('target_outlet', 'generic-common-core').strip()}\n"
+        f"Modo de validación (opcional): {payload.get('validation_mode', 'autonomous').strip()}\n"
     )
 
 
@@ -397,6 +405,7 @@ def wizard_summary(payload: dict[str, str]) -> str:
             f"- Fecha manuscrito: {payload.get('manuscript_date', '').strip() or 'no declarada'}",
             f"- Modo metodológico: {payload.get('review_mode', '').strip() or 'Hermes lo inferirá y lo auditará'}",
             f"- Modo autónomo: {payload.get('autonomous_mode', 'sí').strip()}",
+            f"- Validación: {payload.get('validation_mode', 'autonomous').strip()}",
             "",
             "Responde `crear` para generar los artefactos iniciales o `cancelar` para parar.",
         ]
@@ -457,6 +466,14 @@ def validate_wizard_value(field: str, value: str) -> tuple[str | None, str | Non
         if normalized in mapping:
             return mapping[normalized], None
         return None, "Responde con `biomédico`, `técnico`, `ciencias sociales`, `educación`, `management`, `mixto` o `saltar`."
+    if field == "validation_mode":
+        if normalized in {"saltar", "skip", "omitir", "", "autonomo", "autónomo", "autonomous"}:
+            return "autonomous", None
+        if normalized in {"asistido", "assisted"}:
+            return "assisted", None
+        if normalized in {"adjudicado", "adjudicated", "aprobacion humana", "aprobación humana"}:
+            return "adjudicated", None
+        return None, "Responde con `autonomous`, `assisted`, `adjudicated` o `saltar`."
     if not clean:
         return None, "Necesito una respuesta con algo de contenido para este campo."
     return clean, None
@@ -497,6 +514,7 @@ def parse_intake_block(text: str) -> tuple[dict[str, str], list[str]]:
     payload.setdefault("representativeness", "")
     payload.setdefault("target_outlet", "generic-common-core")
     payload.setdefault("target_length", "")
+    payload.setdefault("validation_mode", "autonomous")
 
     missing = []
     required = (

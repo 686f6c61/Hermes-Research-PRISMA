@@ -1,0 +1,49 @@
+{
+  "schema_version": "hermes.artifact-schemas/v1",
+  "csv": {
+    "searches/search-log.csv": {
+      "version": "v1",
+      "required_columns": ["source", "platform", "query_string", "run_date", "from_date", "to_date", "export_file"]
+    },
+    "records/master-records.csv": {
+      "version": "v1",
+      "required_columns": ["source", "year", "authors", "title_original", "assigned_doi", "needs_doi_resolution", "status"]
+    },
+    "screening/title-abstract.csv": {
+      "version": "v1",
+      "required_columns": ["assigned_doi", "title_original", "decision", "reason", "reason_detail", "reviewer", "reviewed_at"]
+    },
+    "screening/full-text.csv": {
+      "version": "v1",
+      "required_columns": ["assigned_doi", "title_original", "decision", "reason", "reason_detail", "full_text_path", "reviewer"]
+    },
+    "extraction/extraction-table.csv": {
+      "version": "v2",
+      "required_columns": ["assigned_doi", "title_original", "work_type", "empirical_type", "method_used", "evidence_snippet", "evidence_location", "extraction_confidence", "key_findings"]
+    },
+    "selection/ultraquality-shortlist.csv": {
+      "version": "v2",
+      "required_columns": ["assigned_doi", "ultraquality_rank", "ultraquality_score", "score_formula", "selected_for_final_n", "selection_reason"]
+    },
+    "figures/manifest.csv": {
+      "version": "v1",
+      "required_columns": ["figure_id", "title", "purpose", "svg_path", "png_path", "status"]
+    },
+    "figures/paper-figures-spec.csv": {
+      "version": "v1",
+      "required_columns": ["figure_id", "paper_section", "figure_type", "purpose", "evidence_basis", "recommended_status"]
+    },
+    "tables/paper-tables-spec.csv": {
+      "version": "v1",
+      "required_columns": ["table_id", "paper_section", "table_type", "purpose", "evidence_basis", "recommended_status"]
+    }
+  },
+  "json": {
+    "protocol/intake.json": ["schema_version", "topic", "eligibility", "target_n"],
+    "protocol/method-contract.json": ["schema_version", "review_mode", "unit_of_comparison", "critical_appraisal"],
+    "protocol/synthesis-plan.json": ["schema_version", "unit_of_comparison", "decision_rules"],
+    "notes/pipeline-state.json": ["schema_version", "steps", "events"],
+    "paper/audit/model-capabilities.json": ["schema_version", "roles", "status"],
+    "paper/audit/evidence-coverage.json": ["schema_version", "critical_claims", "status"]
+  }
+}

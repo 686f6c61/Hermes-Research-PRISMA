@@ -28,6 +28,15 @@ third-party components. Their own licenses govern those components.
   may download a platform-specific upstream release after verifying its
   published checksum.
 
+## NetworkX
+
+- Project: NetworkX
+- Source: https://github.com/networkx/networkx
+- Version: `3.6.1`
+- License: BSD-3-Clause
+- Distribution: installed in the Hermes runtime for auditable graph metrics,
+  community detection, and GraphML export.
+
 ## Base images and packages
 
 The Docker build uses pinned Debian-based Node and uv images and installs

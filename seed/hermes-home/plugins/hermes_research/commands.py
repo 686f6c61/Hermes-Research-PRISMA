@@ -97,8 +97,8 @@ def _run_bootstrap(binding_key: str, block: str) -> str:
             [
                 "",
                 "Hermes ya la está continuando en segundo plano.",
-                f"- PID: `{background_pid}`",
-                f"- Marcador: `{runtime.public_autonomous_pid_path(review_dir)}`",
+                f"- Proceso supervisor: `{background_pid}`",
+                f"- Estado durable: `{runtime.public_job_ledger_path(review_dir)}`",
             ]
         )
     return "\n".join(lines)
@@ -199,7 +199,26 @@ def _show_status(binding_key: str, token: str) -> str:
 
 
 def _background_review_is_running(review_dir: Path) -> tuple[bool, int | None]:
-    """Return whether the public autonomous review worker still appears alive."""
+    """Return whether the heartbeat-aware autonomous runner is still alive."""
+    ledger = runtime.public_job_ledger_path(review_dir)
+    if ledger.exists():
+        try:
+            payload = json.loads(ledger.read_text(encoding="utf-8"))
+            pid = int(payload.get("runner_pid", 0) or 0)
+            status = str(payload.get("status") or "").lower()
+        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            pid = 0
+            status = ""
+        if status in {"starting", "running"} and pid > 0:
+            try:
+                os.kill(pid, 0)
+                return True, pid
+            except OSError:
+                return False, pid
+        if status in {"completed", "failed", "cancelled"}:
+            return False, pid or None
+
+    # Compatibility with jobs started before the durable ledger existed.
     marker = runtime.public_autonomous_pid_path(review_dir)
     if not marker.exists():
         return False, None

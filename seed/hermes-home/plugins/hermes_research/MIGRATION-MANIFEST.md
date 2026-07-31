@@ -36,6 +36,7 @@ through plugin commands or plugin-owned tools.
 | `skills/research/prisma-systematic-review/scripts/export_publication_latex.py` | autopilot dependency | Indirect |
 | `skills/research/prisma-systematic-review/scripts/prepare_paper_figures.py` | autopilot dependency | Indirect |
 | `skills/research/prisma-systematic-review/scripts/render_review_figures.py` | autopilot dependency | Indirect |
+| `skills/research/research-network-analysis/scripts/build_network_analysis.py` | review and autopilot dependency | Indirect |
 | `skills/research/prisma-systematic-review/scripts/package_publication_bundle.py` | CLI `research package` | Wired |
 | `skills/research/prisma-systematic-review/scripts/sync_review_to_obsidian.py` | publication dependency | Indirect |
 | `skills/research/prisma-systematic-review/scripts/telegram_prisma_notify.py` | notification hook candidate | Pending |
@@ -51,6 +52,7 @@ These should eventually be re-exported or shipped natively by the plugin.
 | `skills/research/academic-paper-reviewer/` | peer review packet generation | Re-exported |
 | `skills/research/research-integrity-audit/` | integrity checks | Re-exported |
 | `skills/research/revision-roadmap/` | reviewer feedback roadmap | Re-exported |
+| `skills/research/research-network-analysis/` | bibliometric and evidence-network atlas | Re-exported |
 
 ## 4. Template and data surface
 

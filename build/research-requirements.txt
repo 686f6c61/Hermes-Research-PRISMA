@@ -1,0 +1,3 @@
+# Scientific graph analysis. Keep this file small and pinned so local, CI, and
+# container executions compute the same metrics.
+networkx==3.6.1

@@ -1,0 +1,4 @@
+doi,title,gold_decision,gold_reason,mode
+fixture:001,Relevant study,include,Matches every criterion,fixture
+fixture:002,Out of scope study,exclude,Wrong population,fixture
+fixture:003,Borderline study,review,Needs full text,fixture

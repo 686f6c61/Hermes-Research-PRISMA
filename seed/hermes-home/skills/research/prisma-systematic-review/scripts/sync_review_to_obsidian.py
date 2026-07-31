@@ -892,6 +892,7 @@ def build_overview(
         f"- {note_link(pathlib.Path('24 Publication Package.md'), 'Paquete de publicacion')}",
         f"- {note_link(pathlib.Path('25 APA Reference Workflow.md'), 'Flujo APA')}",
         f"- {note_link(pathlib.Path('26 Figure Intelligence Workflow.md'), 'Flujo de figuras y vision')}",
+        f"- {note_link(pathlib.Path('19A Structural Atlas.md'), 'Atlas estructural del corpus')}",
         f"- {note_link(pathlib.Path('30 Publication Workspace.md'), 'Workspace de publicacion')}",
         "- Las notas avanzadas de screening, extracción, figuras, manuscrito y revisión cruzada solo aparecen cuando Hermes ya tiene contenido maduro para exportarlas.",
         "",
@@ -924,6 +925,44 @@ def build_overview(
         ]
     )
     return "\n".join(lines)
+
+
+def build_structural_atlas_note(review_dir: pathlib.Path) -> str:
+    summary = read_text(review_dir / "analysis" / "summary.md")
+    methodology = read_text(review_dir / "analysis" / "methodology.md")
+    manifest_path = review_dir / "analysis" / "manifest.json"
+    if not manifest_path.exists() or not summary:
+        return pending_note("El análisis estructural aún no tiene un atlas y métricas auditables.")
+    summary = re.sub(r"^(#{1,6})\s+", lambda match: f"{match.group(1)}## ", summary, flags=re.MULTILINE)
+    methodology = re.sub(
+        r"^(#{1,6})\s+",
+        lambda match: f"{match.group(1)}## ",
+        methodology,
+        flags=re.MULTILINE,
+    )
+    return "\n".join(
+        [
+            "#research/networks #research/bibliometrics #obsidian/graph",
+            "",
+            "[Abrir atlas HTML offline](_artifacts/analysis/atlas/network-atlas.html)",
+            "",
+            "## Lectura estructural",
+            summary,
+            "",
+            "## Método y límites",
+            methodology,
+            "",
+            "## Datos reutilizables",
+            "- Nodos: `_artifacts/analysis/data/nodes.csv`",
+            "- Vínculos: `_artifacts/analysis/data/edges.csv`",
+            "- GraphML: `_artifacts/analysis/data/graph.graphml`",
+            "- Centralidad: `_artifacts/analysis/metrics/centrality.csv`",
+            "- Comunidades: `_artifacts/analysis/metrics/communities.csv`",
+            "- Deriva entre fases: `_artifacts/analysis/metrics/selection-drift.csv`",
+            "- Cobertura: `_artifacts/analysis/audit/coverage.json`",
+            "- Parámetros: `_artifacts/analysis/audit/parameters.json`",
+        ]
+    )
 
 
 def build_figures_note(review_dir: pathlib.Path) -> str:
@@ -1213,9 +1252,10 @@ def build_phase_model() -> str:
             "## Fase 2: Explotacion del corpus",
             "- 2.1 Biblioteca de textos completos de los estudios seleccionados",
             "- 2.2 Extraccion profunda a partir de PDF completo",
-            "- 2.3 Desarrollo del indice o esquema que marque el investigador",
-            "- 2.4 Sintesis narrativa, comparativa y metodologica",
-            "- 2.5 Figuras, tablas, trazabilidad y cierre del dossier de evidencia",
+            "- 2.3 Análisis estructural de autoría, temas, referencias, evidencia y deriva de selección",
+            "- 2.4 Desarrollo del indice o esquema que marque el investigador",
+            "- 2.5 Sintesis narrativa, comparativa y metodologica",
+            "- 2.6 Figuras, tablas, trazabilidad y cierre del dossier de evidencia",
             "",
             "## Fase 3: Redaccion del paper publicable",
             "- 3.1 Convertir el indice del investigador en secciones de manuscrito",
@@ -2014,6 +2054,7 @@ def main() -> int:
     sync_note(dest / "17 Thematic Synthesis.md", "Thematic Synthesis", build_thematic_synthesis(included_rows) if included_rows else pending_note("Hermes aún no ha llegado a la síntesis temática basada en estudios incluidos."))
     sync_note(dest / "18 Methodological Synthesis.md", "Methodological Synthesis", build_methodological_synthesis(included_rows) if included_rows else pending_note("Hermes aún no ha llegado a la síntesis metodológica basada en estudios incluidos."))
     sync_note(dest / "19 Included Studies Hub.md", "Included Studies Hub", build_studies_hub(included_rows) if included_rows else pending_note("Hermes aún no ha generado fichas del corpus incluido."))
+    sync_note(dest / "19A Structural Atlas.md", "Structural Atlas", build_structural_atlas_note(review_dir))
     write_note(dest / "20 Obsidian Graph Guide.md", "Obsidian Graph Guide", build_graph_guide(included_rows))
     sync_note(dest / "21 Empirical Evidence Matrix.md", "Empirical Evidence Matrix", build_empirical_evidence_matrix(included_rows) if included_rows else pending_note("Hermes aún no ha completado la extracción suficiente para construir la matriz empírica."))
     write_note(dest / "22 Phase Model.md", "Phase Model", build_phase_model())

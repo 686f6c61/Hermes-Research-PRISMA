@@ -1,0 +1,119 @@
+{
+  "schema_version": "hermes.methodology-profiles/v1",
+  "profiles": {
+    "biomedical": {
+      "config": {
+        "default_framework": "PICO/PICOS",
+        "primary_unit": "poblacion-intervencion/exposicion-outcome",
+        "recommended_sources": ["PubMed", "Europe PMC", "OpenAlex", "Crossref", "Semantic Scholar", "ClinicalTrials.gov cuando aplique"],
+        "screening_axes": ["poblacion", "intervencion/exposicion", "comparador", "outcome", "diseno", "ventana temporal"],
+        "appraisal_tools": ["RoB 2", "ROBINS-I", "JBI", "ROBIS", "AMSTAR 2", "GRADE"],
+        "critical_appraisal_domains": ["aleatorizacion o confounding", "comparador", "medicion del outcome", "datos faltantes", "selective reporting", "precision del efecto"],
+        "synthesis_modes": ["meta-analisis si procede", "SWiM", "sintesis narrativa", "GRADE evidence profile"],
+        "selection_score_weights": {"relevance": 0.35, "quality": 0.40, "representativeness": 0.25}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Matriz PICO/PICOS", "Caracteristicas de estudios", "Riesgo de sesgo", "Certeza de evidencia"],
+        "minimum_figures": ["Mapa poblacion-outcome si aporta", "Resumen de riesgo de sesgo", "Mecanismo clinico solo con evidencia"],
+        "mode_specific_outputs": ["PICO/PICOS auditado", "Risk-of-bias matrix", "GRADE-style certainty note", "Outcomes primarios y secundarios"],
+        "red_flags": ["Poblacion u outcome ausente", "Disenos mezclados sin distincion", "Resultado clinico sin sesgo", "Generalizacion clinica no sostenida"],
+        "excellence_checklist": ["Pregunta operacionalizada", "Outcome, diseno y certeza por conclusion", "Figuras analiticas", "Seleccion y appraisal recomputables"]
+      }
+    },
+    "technical": {
+      "config": {
+        "default_framework": "Sistema-tarea-benchmark-metrica",
+        "primary_unit": "configuracion tecnica del sistema",
+        "recommended_sources": ["OpenAlex", "Crossref", "Semantic Scholar", "arXiv", "OpenAIRE", "Lens"],
+        "screening_axes": ["sistema o arquitectura", "tarea", "dataset o corpus", "benchmark", "metrica", "reproducibilidad"],
+        "appraisal_tools": ["rubro de reproducibilidad", "benchmark validity", "ablation/robustness checklist"],
+        "critical_appraisal_domains": ["descripcion arquitectonica", "baseline o comparador", "dataset", "metrica", "ablation", "replicabilidad", "coste/latencia"],
+        "synthesis_modes": ["sintesis arquitectonica", "taxonomia tecnica", "comparacion por benchmark", "configurational synthesis"],
+        "selection_score_weights": {"relevance": 0.50, "quality": 0.35, "representativeness": 0.15}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Matriz sistema-arquitectura", "Dataset-benchmark-metrica-baseline", "Reproducibilidad", "Resultados y comparabilidad"],
+        "minimum_figures": ["Taxonomia tecnica propia", "Mapa benchmark-dataset-metrica", "Matriz tarea-componente-resultado"],
+        "mode_specific_outputs": ["Architecture grammar", "Benchmark comparability matrix", "Artifact checklist", "System-level contribution statement"],
+        "red_flags": ["Modelo base confundido con sistema", "Benchmarks incompatibles agregados", "Dataset o baseline ausente", "Figura fuente sin funcion analitica"],
+        "excellence_checklist": ["Sistema completo como unidad", "Gramatica tecnica reutilizable", "Condiciones de evaluacion visibles", "Generalizacion separada de rendimiento local"]
+      }
+    },
+    "social_sciences": {
+      "config": {
+        "default_framework": "SPIDER/PEO/PICo",
+        "primary_unit": "constructo-contexto-metodo-evidencia",
+        "recommended_sources": ["OpenAlex", "Crossref", "Semantic Scholar", "OpenAIRE", "Lens"],
+        "screening_axes": ["fenomeno", "poblacion o caso", "constructo", "contexto", "metodo", "tipo de evidencia", "limite de transferencia"],
+        "appraisal_tools": ["CASP", "JBI", "MMAT", "AXIS", "CERQual", "AACODS"],
+        "critical_appraisal_domains": ["claridad del constructo", "marco teorico", "contexto", "muestra/caso", "metodo y recogida", "reflexividad", "coherencia analitica", "transferibilidad"],
+        "synthesis_modes": ["thematic synthesis", "framework synthesis", "realist synthesis", "narrative synthesis", "CERQual-style confidence"],
+        "selection_score_weights": {"relevance": 0.30, "quality": 0.45, "representativeness": 0.25}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Constructo-teoria-contexto-metodo", "Muestra y contexto", "Disenos y tecnicas", "Mecanismos-resultados-transferibilidad"],
+        "minimum_figures": ["Mapa conceptual de constructos", "Mapa mecanismos-contextos-resultados", "Evidence gap map"],
+        "mode_specific_outputs": ["Construct-theory-method matrix", "Transferability note", "Context-mechanism synthesis", "Confidence-in-synthesis statement"],
+        "red_flags": ["Frecuencia sin teoria", "Contexto o unidad ausente", "Cualitativo tratado como causal", "Transferibilidad convertida en universalidad"],
+        "excellence_checklist": ["Conceptos operacionalizados", "Variacion contextual explicada", "Mecanismos visibles", "Agenda futura derivada de vacios"]
+      }
+    },
+    "education": {
+      "config": {
+        "default_framework": "SPIDER/PEO educativo",
+        "primary_unit": "actividad educativa-sistema-contexto-resultado",
+        "recommended_sources": ["ERIC", "OpenAlex", "Crossref", "Semantic Scholar", "OpenAIRE", "Lens"],
+        "screening_axes": ["nivel educativo", "rol docente/estudiante", "actividad pedagogica", "tecnologia o practica", "resultado educativo", "contexto institucional", "equidad/etica"],
+        "appraisal_tools": ["MMAT", "JBI", "CASP", "WWC cuando proceda", "CERQual"],
+        "critical_appraisal_domains": ["alineacion pedagogica", "contexto institucional", "muestra", "instrumento educativo", "resultado", "comparador", "etica/equidad", "transferibilidad"],
+        "synthesis_modes": ["sintesis tematica", "framework synthesis", "mapa tarea-resultado", "narrative synthesis"],
+        "selection_score_weights": {"relevance": 0.32, "quality": 0.43, "representativeness": 0.25}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Actividad-rol-contexto", "Intervencion y comparador", "Outcome educativo", "Equidad y gobernanza"],
+        "minimum_figures": ["Mapa tarea-resultado", "Mapa rol-contexto", "Evidence gap map educativo"],
+        "mode_specific_outputs": ["Education activity matrix", "Teacher/student outcome map", "Institutional transferability note", "Equity and governance audit"],
+        "red_flags": ["Percepcion usada como aprendizaje", "Nivel educativo ausente", "Tecnologia sin actividad pedagogica", "Adopcion confundida con calidad"],
+        "excellence_checklist": ["Outcome pedagogico declarado", "Rol y contexto visibles", "Comparadores defendibles", "Implicaciones accionables para docencia"]
+      }
+    },
+    "management": {
+      "config": {
+        "default_framework": "CIMO/TCCM",
+        "primary_unit": "teoria-contexto-variable-metodo-resultado",
+        "recommended_sources": ["OpenAlex", "Crossref", "Semantic Scholar", "OpenAIRE", "Lens"],
+        "screening_axes": ["nivel de analisis", "contexto organizativo", "variable independiente", "resultado estrategico", "mecanismo", "moderador/mediador", "metodo y endogeneidad"],
+        "appraisal_tools": ["TCCM", "CIMO", "JBI", "MMAT", "AXIS", "ROBINS-I adaptado", "endogeneity checklist"],
+        "critical_appraisal_domains": ["teoria declarada", "unidad de analisis", "operacionalizacion", "muestra/firma/sector/pais", "identificacion causal", "comparador", "robustez", "generalizacion"],
+        "synthesis_modes": ["TCCM synthesis", "CIMO synthesis", "framework synthesis", "configurational synthesis", "narrative causal caution"],
+        "selection_score_weights": {"relevance": 0.33, "quality": 0.42, "representativeness": 0.25}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Teoria-contexto-constructo", "Variables y medicion", "Muestra-firma-sector-pais", "Identificacion y robustez"],
+        "minimum_figures": ["Mapa teoria-mecanismo-resultado", "Matriz nivel-contexto-metodo", "Evidence gap map de identificacion"],
+        "mode_specific_outputs": ["TCCM/CIMO matrix", "Endogeneity audit", "Construct measurement map", "Managerial boundary conditions"],
+        "red_flags": ["Asociacion presentada como causal", "Nivel de analisis ambiguo", "Variable sin medicion", "Endogeneidad ignorada"],
+        "excellence_checklist": ["Teoria conectada a mecanismo", "Unidad de analisis estable", "Identificacion auditada", "Implicaciones limitadas por contexto"]
+      }
+    },
+    "mixed": {
+      "config": {
+        "default_framework": "marco compuesto",
+        "primary_unit": "unidad compuesta declarada por modo principal",
+        "recommended_sources": ["OpenAlex", "Crossref", "Semantic Scholar", "OpenAIRE", "Lens"],
+        "screening_axes": ["unidad principal", "contexto", "constructo o sistema", "metodo", "resultado", "transferibilidad"],
+        "appraisal_tools": ["MMAT", "JBI", "framework-specific checklist", "CERQual/GRADE segun corpus"],
+        "critical_appraisal_domains": ["ajuste epistemico", "unidad de analisis", "contexto", "comparador o mecanismo", "calidad", "transferibilidad"],
+        "synthesis_modes": ["framework synthesis", "narrative synthesis", "configurational synthesis", "two-level synthesis"],
+        "selection_score_weights": {"relevance": 0.35, "quality": 0.40, "representativeness": 0.25}
+      },
+      "publication_playbook": {
+        "minimum_tables": ["Flujo de seleccion como tabla", "Modos y unidades", "Disenos y appraisal", "Resultados por logica", "Integracion y limites"],
+        "minimum_figures": ["Mapa de capas epistemicas", "Matriz modo-metodo-resultado", "Evidence gap map compuesto"],
+        "mode_specific_outputs": ["Primary/secondary mode contract", "Two-level synthesis", "Cross-mode comparability audit", "Integration statement"],
+        "red_flags": ["Modos mezclados sin jerarquia", "Metricas inconmensurables agregadas", "Appraisal unico para todo", "Conclusion que borra limites epistemicos"],
+        "excellence_checklist": ["Modo principal declarado", "Reglas heredadas visibles", "Sintesis por capas", "Integracion sin falsa equivalencia"]
+      }
+    }
+  }
+}

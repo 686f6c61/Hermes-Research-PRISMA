@@ -66,11 +66,12 @@ Eso fija desde el principio:
 - estrategia de búsqueda
 - screening
 - extracción
+- análisis estructural
 - manuscrito
 - auditoría
 - revisión editorial
 
-### 4. Ciclo PRISMA
+### 4. Ciclo de revisión
 
 El ciclo operativo combina cuatro piezas:
 
@@ -80,8 +81,12 @@ El ciclo operativo combina cuatro piezas:
 - cierre editorial por gate
 
 La entrada pública crea primero el protocolo. Después el pipeline llena
-búsquedas, screening, full text, extracción y publicación. El watchdog relanza
-fases paradas. El gate decide si la revisión puede considerarse cerrada.
+búsquedas, screening, full text y extracción. Una fase estructural separada
+construye redes de autoría, temas, referencias y evidencia con cobertura y
+parámetros explícitos. La síntesis y publicación consumen esos artefactos sin
+permitir que centralidad, citas o productividad cambien la selección. El
+watchdog relanza fases paradas y el gate decide si la revisión puede
+considerarse cerrada.
 
 ### 5. Extracción documental estructurada
 
@@ -93,3 +98,15 @@ resultado queda cacheado por hash del PDF y solo se acepta con DOI.
 
 Una caída o un timeout de Docling no detiene la revisión. El manifiesto registra
 el fallo y `publication_audit.py` conserva la extracción Poppler como fallback.
+
+### 6. Atlas estructural
+
+Después de extracción, `research-network-analysis` genera un atlas HTML que
+funciona sin CDN ni servidor. Las capas de coautoría, citación, acoplamiento
+bibliográfico, cocitación, palabras clave y evidencia se calculan por separado.
+Los CSV, GraphML, parámetros, cobertura y procedencia permanecen junto al HTML.
+
+Las comunidades solo se interpretan si tamaño, cobertura y estabilidad superan
+los umbrales declarados. En caso contrario el grafo sigue disponible, pero su
+estado es exploratorio. El paquete nunca combina esas métricas en un supuesto
+índice de autoridad.

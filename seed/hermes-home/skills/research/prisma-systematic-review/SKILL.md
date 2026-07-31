@@ -24,8 +24,9 @@ The workflow is **DOI-first**:
 5. Screen title/abstract with explicit inclusion and exclusion criteria.
 6. Screen full text with auditable exclusion reasons.
 7. Extract structured data.
-8. Produce PRISMA counts, tables, and methods text.
-9. Iterate on manuscript, figures, tables, and references until the publication gate passes or a real blocker is documented.
+8. Build an auditable structural atlas of authors, topics, references, evidence, and selection-stage drift.
+9. Produce PRISMA counts, tables, and methods text.
+10. Iterate on manuscript, figures, tables, and references until the publication gate passes or a real blocker is documented.
 
 ## Core Rules
 
@@ -35,6 +36,7 @@ The workflow is **DOI-first**:
 - If DOI is absent, create a `needs_doi_resolution` state and try to resolve it via metadata search.
 - Keep exclusion reasons explicit and one-per-record at the stage where exclusion happened.
 - Every count shown in methods or PRISMA output must be reproducible from files in the workspace.
+- Network position, author productivity, and citation counts must never influence eligibility, critical appraisal, or focal selection.
 - After every material update, sync the review to Obsidian immediately. Do not wait until the end.
 - In autonomous mode, continue phase by phase until every required artifact exists or a real blocker stops the workflow.
 - Every review must declare or infer a methodological mode before search: `biomédico`, `técnico`, `ciencias sociales`, `educación`, `management` or `mixto`. Persist the decision in `protocol/review-mode.md`, `protocol/review-mode.json`, and `audit/mode-decision.md`.
@@ -43,6 +45,10 @@ The workflow is **DOI-first**:
 - If an output is not semantically ready yet, sync a short pending note to Obsidian instead of exporting a misleading placeholder as if it were final.
 - Before any source query, decompose the research question into search stages that cover population/context, exposure or construct, relation, outcome/decision, evidence method, and exclusion boundaries. Persist the result in `protocol/search-decomposition.md`, `protocol/search-decomposition.json`, and `searches/search-stage-map.csv`.
 - Keep external-source credentials out of all review artefacts. Unpaywall uses an email contact, not a classic API key; configure it only as `HERMES_UNPAYWALL_EMAIL` or `UNPAYWALL_EMAIL`. Lens uses `HERMES_LENS_API_KEY` or `LENS_API_KEY`; if absent, Hermes must skip Lens cleanly.
+- Freeze machine-readable intake, method, synthesis, journal and deliverable contracts before intensive screening.
+- Treat a requested final N or N range as a planning target, never as an eligibility quota.
+- Link every critical manuscript claim to DOI, evidence snippet and page or section before publication can pass.
+- Public packages must use DOI identities, omit `record_id` fields and remove author-machine paths.
 
 ## Required Metadata Outputs
 
@@ -259,6 +265,12 @@ The publication gate should also check support objects:
 - at least one architecture or workflow diagram for the method
 - at least one results-side visual evidence object
 - at least one paper-ready table
+- a complete structural-analysis manifest, coverage audit, and offline atlas; network figures enter the manuscript only when they add a defensible analytical finding
+- `protocol/contracts-manifest.json` and a passing artifact-schema validation
+- `paper/audit/model-capabilities.json` and credential-free model provenance
+- `paper/audit/claim-evidence-ledger.csv` with no unsupported critical claims
+- `paper/package/index.html` plus a twelve-category deliverables manifest
+- a valid human adjudication record when `validation_mode=adjudicated`
 
 If the user asks for a standalone manuscript critique outside the built-in PRISMA review loop, use `academic-paper-reviewer`.
 If the user asks for a static preflight before sending the paper, use `research-integrity-audit`.
@@ -301,12 +313,59 @@ systematic-review/
     ultraquality-shortlist.csv
   extraction/
     extraction-table.csv
+  analysis/
+    manifest.json
+    methodology.md
+    summary.md
+    atlas/
+      network-atlas.html
+    data/
+      nodes.csv
+      edges.csv
+      graph.graphml
+    metrics/
+      network-summary.json
+      centrality.csv
+      communities.csv
+      author-production.csv
+      selection-drift.csv
+    audit/
+      coverage.json
+      parameters.json
+      provenance.csv
   prisma/
     flow-counts.csv
     checklist-notes.md
   notes/
     decisions.md
 ```
+
+## Structural Analysis Contract
+
+Run structural analysis after extraction and before manuscript generation. It
+is automatic in the end-to-end cycle; the standalone maintainer command is:
+
+```bash
+python3 HERMES_HOME/skills/research/research-network-analysis/scripts/build_network_analysis.py /workspace/<review-dir>
+```
+
+The analysis must:
+
+- identify studies only by normalized DOI;
+- distinguish corpus publication counts from external OpenAlex productivity;
+- keep authorship, citation, bibliographic coupling, co-citation, keyword, and
+  evidence networks as separate layers;
+- report coverage, denominator, parameters, and claim status for every layer;
+- run community detection across multiple seeds and resolutions and report
+  stability;
+- label communities exploratory below the size, coverage, or stability
+  threshold;
+- export a self-contained HTML atlas with no CDN or runtime upload;
+- preserve CSV, JSON, GraphML, SVG, provenance, and methodology outputs;
+- avoid a composite authority score or causal language based only on topology.
+
+Read `research-network-analysis/references/methodology.md` for the exact
+thresholds and graph semantics.
 
 ## Obsidian Sync
 
@@ -458,6 +517,8 @@ This must maintain:
 
 - `notes/runtime-state.md`
 - `notes/runtime-state.json`
+- `notes/pipeline-state.json`
+- `notes/job-ledger.json` for background executions
 
 The runtime state should record at least:
 
@@ -474,6 +535,10 @@ Resume rules:
 - If the user says `continúa`, `retoma`, or `reanuda la revisión`, resume from the first incomplete phase automatically.
 - If runtime state says `stalled` and there is no blocker, resume from the pending phase automatically.
 - If runtime state says `blocked`, ask only for the missing research input or inaccessible source needed to continue.
+- Skip a completed phase only when both its input content hash and required
+  outputs still match. A stale success marker is not enough.
+- Write running, completed, skipped and failed transitions atomically so a host
+  restart cannot leave a false completed phase.
 
 ## Telegram Progress Reporting
 
@@ -708,6 +773,11 @@ Use these as companions, not replacements for traceability:
   contrast, visual checks, clarity and interpretation risks.
 - The configured catalog must pass `doctor`, and the vision model must also
   pass the bundle's image-input probe before a real review is launched.
+- The primary and review roles must pass the live text/JSON capability probe.
+- Reject provider-side model substitution unless an explicit, audited fallback
+  policy allows it.
+- Record requested model, effective model, role, capability, finish status and
+  token usage in `paper/audit/model-provenance.csv`; never record secrets.
 - When a fallback is used:
   - retry from the last stable state
   - record the switch in `notes/decisions.md`
@@ -732,6 +802,10 @@ When this skill is active:
 13. Before producing PRISMA text or counts, reconcile them against the CSV files.
 14. Before delivering synthesis text, verify RAE-style Spanish and APA references.
 15. Before final packaging, run `journal_readiness_gate.py` so the ZIP includes protocol-ready files, PRISMA 2020 and PRISMA-S checklists, full-text exclusions, risk/reporting appraisal, AI disclosure, data/code availability statements, cover-letter draft, and journal-fit report.
+16. Build the claim-evidence ledger and fail unsupported critical claims.
+17. Validate artifact schemas instead of inferring malformed CSV or JSON.
+18. Package an offline `index.html` that explains all twelve deliverable
+    families and links to their useful entry points.
 
 ## What Not To Do
 

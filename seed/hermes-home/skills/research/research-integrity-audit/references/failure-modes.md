@@ -13,3 +13,4 @@ Use these as the minimum failure taxonomy for Hermes integrity checks:
 - `ERROR`: blocks trust or publication readiness
 - `WARN`: should be fixed before claiming the document is polished
 - `INFO`: useful editorial signal, not a blocker
+

@@ -57,8 +57,10 @@ Subcomandos actuales:
 - `down`
 - `logs`
 - `smoke-test`
+- `capability-test`
 - `multimodal-test`
 - `docling-test`
+- `golden-eval`
 - `cleanroom-validate`
 - `release-bundle`
 - `verify-release`
@@ -85,10 +87,21 @@ construir.
 deja artefactos reales en disco. Su adquisición está acotada a dos fuentes y
 termina antes del cribado intensivo para no dejar costes ocultos.
 
-`multimodal-test` valida la lectura visual de los modelos configurados.
+`capability-test` llama al proveedor y prueba el contrato de cada función. El
+modelo principal y el revisor deben terminar texto y JSON válidos sin que el
+proveedor sustituya silenciosamente el identificador solicitado.
+
+`multimodal-test` valida por separado que el modelo visual pueda interpretar una
+página científica renderizada. Separar ambas pruebas evita exigir visión a un
+modelo que solo se usa para redacción o revisión.
 
 `docling-test` arranca el worker documental aislado y comprueba orden de
 lectura, OCR y extracción material de tablas sobre tres PDF distintos.
+
+`golden-eval` compara predicciones con etiquetas adjudicadas para cribado,
+extracción y localización de evidencia. Sin argumentos ejecuta una fixture
+sintética que prueba el evaluador; para medir calidad científica hay que pasar
+un directorio gold de dominio y sus predicciones.
 
 `cleanroom-validate` responde a una pregunta de distribución: si copio el
 bundle a una carpeta nueva, ¿sigue instalándose y construyéndose desde cero?
@@ -103,3 +116,7 @@ research. Permiten usar el flujo incluso sin Telegram.
 `init --final-n` acepta un entero o rango inclusivo, por ejemplo `35` o
 `23-63`. El rango permite que una revisión se adapte a la evidencia disponible
 sin inventar un tamaño final exacto antes de buscar.
+
+`init` también admite `validation_mode` en un bloque de intake avanzado:
+`autonomous`, `assisted` o `adjudicated`. En modo adjudicado, el gate exige un
+registro humano de aprobación antes de cerrar.

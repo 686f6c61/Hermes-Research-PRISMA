@@ -4,7 +4,7 @@ All notable changes to Hermes Research Pack are documented here. The project
 uses semantic versioning for its public wrapper, plugin contract and release
 bundle.
 
-## 0.3.0 - 2026-07-31
+## 0.4.0 - 2026-07-31
 
 ### Added
 
@@ -13,6 +13,21 @@ bundle.
 - Exact or ranged final sample targets such as `37` or `23-63`.
 - Provider-neutral OpenAI-compatible inference configuration.
 - Separate Docling service for structured PDF, table, figure and OCR extraction.
+- Executable intake, method, synthesis, journal and deliverables contracts with
+  immutable hashes and an amendments ledger.
+- Six methodological profiles for biomedical, technical, social-science,
+  education, management and mixed-domain reviews.
+- A claim-evidence ledger that links critical manuscript claims to citations,
+  DOI, source fragments and page locations.
+- A twelve-part offline delivery guide with a machine-readable manifest,
+  availability state, file size and SHA-256 for every public deliverable.
+- Durable background jobs with heartbeat, event ledger, content-addressed phase
+  state and safe resume after an interruption.
+- Capability probes for text, structured JSON and visual document reading, with
+  model provenance and silent-substitution detection.
+- Golden evaluation for screening, extraction and evidence localisation, with
+  precision, recall, F1, specificity and field-level error analysis.
+- Declarative topic packs and versioned artifact schemas.
 - Release manifest, SHA-256 checksum, SBOM and fixable-vulnerability gate.
 - Clean-room ZIP verification and public release documentation.
 - Citation metadata, community health files, issue forms and pull-request checks.
@@ -35,6 +50,10 @@ bundle.
   integrates through the standalone plugin API.
 - Removed temporary intake payloads immediately after bootstrap and hardened
   persistent state writes against partial filesystem updates.
+- Made the publication autopilot incremental: stable phases are reused only
+  while their input hashes remain unchanged.
+- Sanitized public publication bundles by removing internal record identifiers,
+  absolute paths and private PDF names while preserving DOI-based traceability.
 
 ### Removed
 
@@ -44,6 +63,6 @@ bundle.
 - The architecture-specific Tirith binary; installation is now verified at
   runtime against its upstream checksum.
 
-## 0.2.0
+## 0.0.3
 
 - Initial internal distribution candidate.

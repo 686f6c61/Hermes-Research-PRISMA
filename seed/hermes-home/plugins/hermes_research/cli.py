@@ -21,6 +21,12 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
     init_p.add_argument("--exclude", required=True, help="Exclusion criteria")
     init_p.add_argument("--question", default="", help="Optional research question")
     init_p.add_argument("--autonomous", default="sí", help="Autonomous mode flag")
+    init_p.add_argument(
+        "--validation-mode",
+        default="autonomous",
+        choices=("autonomous", "assisted", "adjudicated"),
+        help="Optional human-validation policy.",
+    )
     init_p.add_argument("--mode", default="", help="Optional methodological mode: biomédico, técnico, ciencias sociales, educación, management or mixto")
     init_p.add_argument("--final-n", default="37", help="Target final N")
     init_p.add_argument("--outlet", default="generic-common-core", help="Target outlet")
@@ -57,6 +63,7 @@ def research_command(args: argparse.Namespace) -> int:
             "exclusion_criteria": args.exclude,
             "research_question": args.question,
             "autonomous_mode": args.autonomous,
+            "validation_mode": args.validation_mode,
             "review_mode": args.mode,
             "final_n": args.final_n,
             "target_outlet": args.outlet,
@@ -73,6 +80,7 @@ def research_command(args: argparse.Namespace) -> int:
             f"Criterios de exclusión: {payload['exclusion_criteria']}",
             f"Pregunta de investigación (opcional): {payload['research_question']}",
             f"Modo autónomo: {payload['autonomous_mode']}",
+            f"Modo de validación (opcional): {payload['validation_mode']}",
             f"Modo metodológico (opcional): {payload['review_mode']}",
             f"Límite final N: {payload['final_n']}",
             f"Revista o medio objetivo: {payload['target_outlet']}",

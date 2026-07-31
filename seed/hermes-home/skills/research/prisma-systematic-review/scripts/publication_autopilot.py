@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import pathlib
 import re
 import subprocess
@@ -13,11 +14,23 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
+
+from pipeline_state import record_step, should_run
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent
 RESEARCH_SKILLS = SCRIPTS.parent.parent
 INTEGRITY_AUDIT_SCRIPT = RESEARCH_SKILLS / "research-integrity-audit" / "scripts" / "check_manuscript_integrity.py"
+NETWORK_ANALYSIS_SCRIPT = (
+    RESEARCH_SKILLS
+    / "research-network-analysis"
+    / "scripts"
+    / "build_network_analysis.py"
+)
 STEP_TIMEOUTS = {
+    "build_review_contracts.py": 120,
+    "model_capability_probe.py": 120,
+    "build_network_analysis.py": 1800,
     "prepare_paper_figures.py": 1800,
     "render_review_figures.py": 900,
     "publication_audit.py": 1800,
@@ -28,6 +41,182 @@ STEP_TIMEOUTS = {
     "journal_readiness_gate.py": 300,
     "sync_review_to_obsidian.py": 900,
     "integrity_audit": 900,
+    "build_evidence_ledger.py": 120,
+    "validate_artifact_schemas.py": 120,
+}
+STEP_CONTRACTS = {
+    "contracts": {
+        "inputs": ["protocol/*.md", "protocol/review-mode.json"],
+        "outputs": [
+            "protocol/contracts-manifest.json",
+            "protocol/intake.json",
+            "protocol/method-contract.json",
+            "protocol/synthesis-plan.json",
+            "protocol/journal-profile.json",
+            "protocol/deliverables-contract.json",
+        ],
+    },
+    "model_capabilities": {
+        "inputs": ["protocol/contracts-manifest.json"],
+        "outputs": ["paper/audit/model-capabilities.json"],
+    },
+    "network_analysis": {
+        "inputs": [
+            "records/master-records.csv",
+            "screening/*.csv",
+            "extraction/extraction-table.csv",
+            "searches/search-log.csv",
+        ],
+        "outputs": ["analysis/manifest.json", "analysis/atlas/network-atlas.html"],
+    },
+    "prepare_figures": {
+        "inputs": [
+            "protocol/method-contract.json",
+            "extraction/extraction-table.csv",
+            "selection/ultraquality-shortlist.csv",
+            "paper/sections/*.md",
+        ],
+        "outputs": ["figures/paper-figures-spec.csv", "tables/paper-tables-spec.csv"],
+    },
+    "render_figures": {
+        "inputs": [
+            "figures/paper-figures-spec.csv",
+            "tables/paper-tables-spec.csv",
+            "prisma/flow-counts.csv",
+            "extraction/extraction-table.csv",
+        ],
+        "outputs": ["figures/manifest.csv"],
+    },
+    "publication_audit": {
+        "inputs": [
+            "protocol/*.json",
+            "paper/sections/*.md",
+            "extraction/extraction-table.csv",
+            "selection/ultraquality-shortlist.csv",
+            "figures/manifest.csv",
+            "tables/*.csv",
+        ],
+        "outputs": ["paper/manuscript/publication-ready.md", "paper/audit/publication-audit.md"],
+    },
+    "latex": {
+        "inputs": [
+            "paper/manuscript/publication-ready.md",
+            "paper/references/*",
+            "figures/png/*",
+            "figures/svg/*",
+        ],
+        "outputs": [
+            "paper/manuscript/publication-ready.tex",
+            "paper/manuscript/publication-ready.pdf",
+        ],
+    },
+    "peer_review": {
+        "inputs": [
+            "paper/manuscript/publication-ready.md",
+            "paper/references/*",
+            "paper/audit/publication-audit.md",
+            "paper/review/reviewer-models.csv",
+        ],
+        "outputs": ["paper/review/review-manifest.csv", "paper/review/peer-review-overview.md"],
+    },
+    "integrity": {
+        "inputs": [
+            "paper/manuscript/publication-ready.md",
+            "paper/references/*",
+            "extraction/extraction-table.csv",
+        ],
+        "outputs": ["paper/audit/integrity-audit/integrity-audit.json"],
+    },
+    "evidence_ledger": {
+        "inputs": [
+            "paper/manuscript/publication-ready.md",
+            "extraction/extraction-table.csv",
+        ],
+        "outputs": [
+            "paper/audit/claim-evidence-ledger.csv",
+            "paper/audit/evidence-coverage.json",
+            "paper/audit/evidence-coverage.md",
+        ],
+    },
+    "schema_validation": {
+        "inputs": [
+            "protocol/*.json",
+            "notes/pipeline-state.json",
+            "searches/*.csv",
+            "records/*.csv",
+            "screening/*.csv",
+            "selection/*.csv",
+            "extraction/*.csv",
+            "figures/*.csv",
+            "tables/*.csv",
+            "paper/audit/evidence-coverage.json",
+            "paper/audit/model-capabilities.json",
+        ],
+        "outputs": [
+            "paper/audit/schema-validation.json",
+            "paper/audit/schema-validation.md",
+        ],
+    },
+    "package": {
+        "inputs": [
+            "protocol/*",
+            "searches/*.csv",
+            "records/*.csv",
+            "screening/*.csv",
+            "selection/*.csv",
+            "extraction/*.csv",
+            "analysis/manifest.json",
+            "analysis/atlas/*",
+            "analysis/data/*",
+            "analysis/metrics/*",
+            "figures/*.csv",
+            "figures/png/*",
+            "figures/svg/*",
+            "tables/*.csv",
+            "paper/manuscript/*",
+            "paper/references/*",
+            "paper/review/**/*.md",
+            "paper/review/**/*.csv",
+            "paper/audit/**/*.md",
+            "paper/audit/**/*.json",
+            "paper/audit/**/*.csv",
+            "paper/journal-readiness/*",
+        ],
+        "outputs": [
+            "paper/package/publication-package.zip",
+            "paper/package/publication-latex-editable.zip",
+            "paper/package/index.html",
+            "paper/package/deliverables-manifest.json",
+        ],
+    },
+    "publication_gate": {
+        "inputs": [
+            "protocol/*.json",
+            "paper/manuscript/*",
+            "paper/review/**/*.csv",
+            "paper/audit/integrity-audit/*",
+            "paper/audit/evidence-coverage.json",
+            "paper/audit/schema-validation.json",
+            "paper/package/*.zip",
+            "figures/manifest.csv",
+            "tables/*.csv",
+        ],
+        "outputs": ["paper/audit/publication-gate.md", "paper/audit/publication-gate.json"],
+    },
+    "journal_readiness": {
+        "inputs": [
+            "protocol/*",
+            "searches/*.csv",
+            "screening/*.csv",
+            "extraction/*.csv",
+            "paper/manuscript/publication-ready.md",
+            "paper/audit/publication-gate.json",
+        ],
+        "outputs": [
+            "paper/journal-readiness/journal-readiness-report.md",
+            "paper/journal-readiness/journal-readiness-gate.csv",
+        ],
+    },
 }
 
 
@@ -50,6 +239,20 @@ def parse_markdown_status(path: pathlib.Path) -> str:
     text = read_text(path)
     match = re.search(r"Estado global:\s+\*\*(PASS|WARN|FAIL)\*\*", text)
     return match.group(1) if match else "UNKNOWN"
+
+
+def parse_gate_status(review_dir: pathlib.Path, stem: str) -> str:
+    """Prefer the machine-readable gate and retain Markdown compatibility."""
+    json_path = review_dir / "paper" / "audit" / f"{stem}.json"
+    if json_path.exists():
+        try:
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+            status = str(payload.get("status") or payload.get("overall") or "").upper()
+            if status in {"PASS", "WARN", "FAIL"}:
+                return status
+        except (OSError, json.JSONDecodeError):
+            pass
+    return parse_markdown_status(review_dir / "paper" / "audit" / f"{stem}.md")
 
 
 def parse_reviewer_summary(path: pathlib.Path) -> str:
@@ -82,6 +285,63 @@ def run_step(script_name: str, review_dir: pathlib.Path, extra_args: list[str] |
         raise RuntimeError(f"{script_name} timed out after {timeout}s.") from exc
 
 
+def run_cached(
+    review_dir: pathlib.Path,
+    step_id: str,
+    runner: Callable[[], None],
+    *,
+    force: bool = False,
+) -> bool:
+    """Run one content-addressed step and persist every transition."""
+    contract = STEP_CONTRACTS[step_id]
+    inputs = contract["inputs"]
+    outputs = contract["outputs"]
+    dirty, _input_hash = should_run(
+        review_dir,
+        step_id,
+        inputs=inputs,
+        outputs=outputs,
+        force=force,
+    )
+    if not dirty:
+        record_step(
+            review_dir,
+            step_id,
+            status="skipped",
+            inputs=inputs,
+            outputs=outputs,
+            detail="Inputs and outputs match the last completed content hash.",
+        )
+        return False
+    record_step(
+        review_dir,
+        step_id,
+        status="running",
+        inputs=inputs,
+        outputs=outputs,
+    )
+    try:
+        runner()
+    except Exception as exc:
+        record_step(
+            review_dir,
+            step_id,
+            status="failed",
+            inputs=inputs,
+            outputs=outputs,
+            detail=str(exc),
+        )
+        raise
+    record_step(
+        review_dir,
+        step_id,
+        status="completed",
+        inputs=inputs,
+        outputs=outputs,
+    )
+    return True
+
+
 def run_integrity_audit(review_dir: pathlib.Path) -> None:
     publication_ready = review_dir / "paper" / "manuscript" / "publication-ready.md"
     compiled_submission = review_dir / "paper" / "manuscript" / "compiled-submission.md"
@@ -100,6 +360,19 @@ def run_integrity_audit(review_dir: pathlib.Path) -> None:
         subprocess.run(cmd, check=True, timeout=STEP_TIMEOUTS["integrity_audit"])
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"integrity_audit timed out after {STEP_TIMEOUTS['integrity_audit']}s.") from exc
+
+
+def run_network_analysis(review_dir: pathlib.Path) -> None:
+    try:
+        subprocess.run(
+            [sys.executable, str(NETWORK_ANALYSIS_SCRIPT), str(review_dir)],
+            check=True,
+            timeout=STEP_TIMEOUTS["build_network_analysis.py"],
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"build_network_analysis.py timed out after {STEP_TIMEOUTS['build_network_analysis.py']}s."
+        ) from exc
 
 
 def write_report(review_dir: pathlib.Path, rounds: list[RoundStatus], final_note: str) -> pathlib.Path:
@@ -143,25 +416,96 @@ def main() -> int:
     repeated_signature_count = 0
     previous_signature: tuple[str, str, str] | None = None
 
+    try:
+        run_cached(
+            review_dir,
+            "contracts",
+            lambda: run_step("build_review_contracts.py", review_dir),
+        )
+        run_cached(
+            review_dir,
+            "model_capabilities",
+            lambda: run_step(
+                "model_capability_probe.py",
+                review_dir,
+                [
+                    "--review-dir",
+                    str(review_dir),
+                    "--output",
+                    str(review_dir / "paper" / "audit" / "model-capabilities.json"),
+                ],
+            ),
+        )
+        run_cached(review_dir, "network_analysis", lambda: run_network_analysis(review_dir))
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        write_report(review_dir, rounds, f"Bloqueo en preparación metodológica o análisis estructural: {exc}")
+        return 1
+
     for round_number in range(1, max(args.max_rounds, 1) + 1):
         try:
-            run_step("prepare_paper_figures.py", review_dir, ["--autopilot", "--force"])
-            run_step("render_review_figures.py", review_dir)
-            run_step("publication_audit.py", review_dir, ["--apply"])
-            run_step("export_publication_latex.py", review_dir)
-            run_step("publication_peer_review.py", review_dir)
-            run_step("package_publication_bundle.py", review_dir)
-            run_integrity_audit(review_dir)
-            run_step("publication_gate.py", review_dir)
-            run_step("journal_readiness_gate.py", review_dir)
-            run_step("package_publication_bundle.py", review_dir)
+            run_cached(
+                review_dir,
+                "prepare_figures",
+                lambda: run_step("prepare_paper_figures.py", review_dir, ["--autopilot", "--force"]),
+            )
+            run_cached(
+                review_dir,
+                "render_figures",
+                lambda: run_step("render_review_figures.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "publication_audit",
+                lambda: run_step("publication_audit.py", review_dir, ["--apply"]),
+            )
+            run_cached(
+                review_dir,
+                "latex",
+                lambda: run_step("export_publication_latex.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "peer_review",
+                lambda: run_step("publication_peer_review.py", review_dir),
+            )
+            run_cached(review_dir, "integrity", lambda: run_integrity_audit(review_dir))
+            run_cached(
+                review_dir,
+                "evidence_ledger",
+                lambda: run_step("build_evidence_ledger.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "schema_validation",
+                lambda: run_step("validate_artifact_schemas.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "package",
+                lambda: run_step("package_publication_bundle.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "publication_gate",
+                lambda: run_step("publication_gate.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "journal_readiness",
+                lambda: run_step("journal_readiness_gate.py", review_dir),
+            )
+            run_cached(
+                review_dir,
+                "package",
+                lambda: run_step("package_publication_bundle.py", review_dir),
+            )
             run_step("sync_review_to_obsidian.py", review_dir)
         except (RuntimeError, subprocess.CalledProcessError) as exc:
             write_report(review_dir, rounds, f"Bloqueo operativo en ronda {round_number}: {exc}")
             return 1
 
-        gate_status = parse_markdown_status(review_dir / "paper" / "audit" / "publication-gate.md")
-        audit_status = parse_markdown_status(review_dir / "paper" / "audit" / "publication-audit.md")
+        gate_status = parse_gate_status(review_dir, "publication-gate")
+        audit_status = parse_gate_status(review_dir, "publication-audit")
         reviewer_summary = parse_reviewer_summary(review_dir / "paper" / "review" / "review-manifest.csv")
         manuscript_sig = manuscript_hash(review_dir / "paper" / "manuscript" / "publication-ready.md")
         current_signature = (gate_status, reviewer_summary, manuscript_sig)
