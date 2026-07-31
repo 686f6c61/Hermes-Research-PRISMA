@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible installation, runtime, or artifact defect.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove secrets, private papers, personal data, and unpublished research before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Hermes Research Pack version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Installation or upgrade
+        - CLI
+        - Telegram
+        - Search and acquisition
+        - Full-text extraction
+        - Manuscript, LaTeX, or PDF
+        - Packaging or release
+        - Landing
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include commands and a redacted log excerpt.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Ubuntu 24.04, Docker 28.x, Compose v2, CLI mode"
+    validations:
+      required: true
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Data hygiene
+      options:
+        - label: I removed credentials, tokens, personal data, private full text, and local-only paths.
+          required: true

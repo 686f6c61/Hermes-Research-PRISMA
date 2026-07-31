@@ -1,0 +1,3 @@
+# Every public script resolves common.sh relative to its own location. The
+# dynamic expression is intentional and cannot be followed statically.
+disable=SC1091

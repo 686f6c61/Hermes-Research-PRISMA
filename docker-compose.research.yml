@@ -1,0 +1,109 @@
+# Shared runtime profile for both the public gateway and the PRISMA watchdog.
+x-hermes-common: &hermes-common
+  build:
+    context: .
+    dockerfile: Dockerfile.research
+    args:
+      HERMES_REF: ${HERMES_SOURCE_REF:-v2026.7.20}
+      HERMES_COMMIT: ${HERMES_SOURCE_COMMIT:-3ef6bbd201263d354fd83ec55b3c306ded2eb72a}
+  image: hermes-agent-local:${HERMES_IMAGE_TAG:-v2026.7.20-public}
+  working_dir: /workspace
+  user: ${HERMES_UID:-1000}:${HERMES_GID:-1000}
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:size=1g,mode=1777
+  pids_limit: 256
+  mem_limit: 8g
+  environment:
+    HERMES_HOME: /opt/data
+    HOME: /opt/data/home/default
+    PYTHONUNBUFFERED: "1"
+    TZ: ${TZ:-Europe/Madrid}
+    OBSIDIAN_VAULT_PATH: /vaults/obsidian
+    HERMES_INSTALL_MODE: ${HERMES_INSTALL_MODE:-both}
+    HERMES_TELEGRAM_PUBLIC_MENU_ONLY: ${HERMES_TELEGRAM_PUBLIC_MENU_ONLY:-1}
+    HERMES_PUBLIC_REVIEW_WORKSPACE: ${HERMES_PUBLIC_REVIEW_WORKSPACE:-/workspace}
+  env_file:
+    - .env
+  volumes:
+    # These mounts are the public package contract. A user only needs to know
+    # the host-side runtime folders, not the internal repo layout.
+    - ${HERMES_DATA_DIR:-./runtime/hermes-home}:/opt/data
+    - ${HERMES_WORKSPACE_DIR:-./runtime/workspace}:/workspace
+    - ${OBSIDIAN_VAULT_HOST_PATH:-./runtime/obsidian}:/vaults/obsidian
+
+services:
+  hermes:
+    <<: *hermes-common
+    container_name: ${HERMES_CONTAINER_NAME:-hermes-agent}
+    restart: unless-stopped
+    # The public package boots directly into the Telegram gateway.
+    entrypoint: ["bash", "/opt/data/bin/start-gateway.sh"]
+
+  hermes-watchdog:
+    <<: *hermes-common
+    container_name: ${HERMES_WATCHDOG_CONTAINER_NAME:-hermes-prisma-watchdog}
+    restart: unless-stopped
+    environment:
+      HERMES_HOME: /opt/data
+      HOME: /opt/data/home/default
+      PYTHONUNBUFFERED: "1"
+      TZ: ${TZ:-Europe/Madrid}
+      OBSIDIAN_VAULT_PATH: /vaults/obsidian
+      HERMES_TELEGRAM_PUBLIC_MENU_ONLY: ${HERMES_TELEGRAM_PUBLIC_MENU_ONLY:-1}
+      HERMES_PUBLIC_REVIEW_WORKSPACE: ${HERMES_PUBLIC_REVIEW_WORKSPACE:-/workspace}
+      PRISMA_WATCHDOG_INTERVAL_SECONDS: ${PRISMA_WATCHDOG_INTERVAL_SECONDS:-300}
+      PRISMA_WATCHDOG_STALLED_MINUTES: ${PRISMA_WATCHDOG_STALLED_MINUTES:-15}
+      PRISMA_WATCHDOG_COOLDOWN_MINUTES: ${PRISMA_WATCHDOG_COOLDOWN_MINUTES:-30}
+      PRISMA_WATCHDOG_AGENT_TIMEOUT_SECONDS: ${PRISMA_WATCHDOG_AGENT_TIMEOUT_SECONDS:-3600}
+      PRISMA_WATCHDOG_MODELS: ${PRISMA_WATCHDOG_MODELS:-}
+    # The watchdog exists to resume stalled PRISMA reviews without user action.
+    entrypoint: ["bash", "/opt/data/bin/start-watchdog.sh"]
+
+  docling:
+    image: ${DOCLING_IMAGE:-quay.io/docling-project/docling-serve-cpu@sha256:1ef1991ec5aa494c21dd3f509e5effada493b44fdcf0ec28697d279dc060be81}
+    container_name: ${DOCLING_CONTAINER_NAME:-hermes-docling}
+    profiles:
+      - docling
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    pids_limit: 256
+    mem_limit: 5g
+    cpus: 4.0
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      DOCLING_DEVICE: cpu
+      DOCLING_NUM_THREADS: ${DOCLING_NUM_THREADS:-4}
+      DOCLING_PERF_PAGE_BATCH_SIZE: ${DOCLING_PERF_PAGE_BATCH_SIZE:-2}
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "false"
+      DOCLING_SERVE_ALLOW_EXTERNAL_PLUGINS: "false"
+      DOCLING_SERVE_DEBUG_ERROR_DETAILS: "false"
+      DOCLING_SERVE_LOG_FORMAT: json
+      DOCLING_SERVE_LOG_LEVEL: WARNING
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: "1"
+      DOCLING_SERVE_ENG_LOC_SHARE_MODELS: "true"
+      DOCLING_SERVE_MAX_FILE_SIZE: ${DOCLING_SERVE_MAX_FILE_SIZE:-52428800}
+      DOCLING_SERVE_MAX_NUM_PAGES: ${DOCLING_SERVE_MAX_NUM_PAGES:-200}
+      DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: ${DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT:-240}
+      DOCLING_SERVE_MAX_SYNC_WAIT: ${DOCLING_SERVE_MAX_SYNC_WAIT:-210}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health',timeout=5)"
+      interval: 15s
+      timeout: 8s
+      retries: 20
+      start_period: 180s

@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.13"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test tools
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - name: Install quality tools
+        run: python -m pip install --disable-pip-version-check ruff==0.15.22
+
+      - name: Seed inert configuration
+        run: cp .env.example .env
+
+      - name: Validate Python
+        run: ruff check seed/hermes-home/plugins seed/hermes-home/skills/research tests
+
+      - name: Validate publication metadata
+        run: python scripts/validate-publication-metadata.py
+
+      - name: Validate shell scripts
+        run: bash scripts/lint-shell.sh
+
+      - name: Validate Compose
+        run: docker compose -f docker-compose.research.yml --profile docling config >/dev/null
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Seed inert configuration
+        run: cp .env.example .env
+
+      - name: Build runtime image
+        run: docker compose -f docker-compose.research.yml build hermes
+
+      - name: Prove plugin-only Hermes integration
+        run: bash scripts/plugin-only-test.sh --skip-build
+
+      - name: Scan repository for committed secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.72.0
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          exit-code: "1"
+          hide-progress: true
+
+      - name: Scan fixable vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: v0.72.0
+          image-ref: hermes-agent-local:v2026.7.20-public
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

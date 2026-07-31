@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use Hermes Research Pack, please cite the software and the exact release used."
+title: "Hermes Research Pack"
+type: software
+authors:
+  - family-names: "686f6c61"
+version: 0.3.0
+date-released: 2026-07-31
+repository-code: "https://github.com/686f6c61/Hermes-Research-PRISMA"
+url: "https://hermes-prisma.686f6c61.dev"
+license: MIT
+keywords:
+  - systematic literature review
+  - research automation
+  - Hermes Agent
+  - PRISMA
+  - reproducible research

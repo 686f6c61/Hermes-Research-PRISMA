@@ -1,0 +1,8 @@
+# Temporary security overrides applied after resolving the pinned Hermes
+# dependency graph. Remove each line when the pinned upstream release includes
+# the same or a newer fixed version.
+cryptography==48.0.1
+Pillow==12.3.0
+python-multipart==0.0.30
+starlette==1.3.1
+tornado==6.5.6

@@ -1,0 +1,41 @@
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Generated reviews, runtime state, and release archives
+runtime/
+dist/
+Hermes/
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+output/
+.playwright-cli/
+
+# Virtual environments
+.venv/
+venv/
+
+# LaTeX and document build residue
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.xdv
+
+# Editor and operating-system files
+.DS_Store
+*.swp
+*~

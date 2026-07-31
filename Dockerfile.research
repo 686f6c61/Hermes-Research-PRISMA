@@ -1,0 +1,138 @@
+FROM ghcr.io/astral-sh/uv:0.12.0-python3.13-trixie@sha256:3531a47a8e3f2365fdbd90632299ca8fbe8693ec34d867862c80cdc520ee6875 AS uv_source
+FROM node:22-trixie-slim@sha256:517aa41d78545cb1b8c67b13655b4c13ede1ee9df1da8aab54cd7434aefbcaf8 AS hermes_builder
+
+ARG HERMES_REF=v2026.7.20
+ARG HERMES_COMMIT=3ef6bbd201263d354fd83ec55b3c306ded2eb72a
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        gcc \
+        git \
+        libffi-dev \
+        python3 \
+        python3-dev \
+        python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Fetch the immutable commit behind the documented Hermes release. The tag is
+# retained as human-readable metadata, but the build trusts the commit SHA.
+RUN git init /opt/hermes && \
+    git -C /opt/hermes remote add origin https://github.com/NousResearch/hermes-agent.git && \
+    git -C /opt/hermes fetch --depth 1 origin \
+        "${HERMES_COMMIT}" \
+        "refs/tags/${HERMES_REF}:refs/tags/${HERMES_REF}" && \
+    test "$(git -C /opt/hermes rev-list -n 1 "refs/tags/${HERMES_REF}")" = "${HERMES_COMMIT}" && \
+    git -C /opt/hermes checkout --detach "${HERMES_COMMIT}" && \
+    test "$(git -C /opt/hermes rev-parse HEAD)" = "${HERMES_COMMIT}"
+
+WORKDIR /opt/hermes
+
+COPY build/security-constraints.txt /tmp/security-constraints.txt
+COPY --from=uv_source /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=uv_source /usr/local/bin/uvx /usr/local/bin/uvx
+
+RUN sed -i \
+        -e 's/"cryptography==46.0.7"/"cryptography==48.0.1"/' \
+        -e 's/"Pillow==12.2.0"/"Pillow==12.3.0"/' \
+        -e 's/starlette==1.0.1/starlette==1.3.1/g' \
+        -e 's/python-multipart==0.0.27/python-multipart==0.0.30/g' \
+        pyproject.toml && \
+    uv lock \
+        --upgrade-package cryptography \
+        --upgrade-package pillow \
+        --upgrade-package python-multipart \
+        --upgrade-package starlette \
+        --upgrade-package tornado && \
+    uv sync --frozen --no-install-project \
+        --extra cli --extra cron --extra pty && \
+    uv pip install --python /opt/hermes/.venv/bin/python --no-cache --no-deps -e "." && \
+    uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
+        "python-telegram-bot[webhooks]==22.6" \
+        "aiohttp==3.14.1" \
+        "brotlicffi==1.2.0.1" \
+        "qrcode==7.4.2" \
+        -r /tmp/security-constraints.txt && \
+    uv pip check --python /opt/hermes/.venv/bin/python && \
+    rm -f /tmp/security-constraints.txt && \
+    printf '%s\n' "${HERMES_COMMIT}" > /opt/hermes/.hermes-source-commit && \
+    rm -rf /opt/hermes/.git
+
+FROM node:22-trixie-slim@sha256:517aa41d78545cb1b8c67b13655b4c13ede1ee9df1da8aab54cd7434aefbcaf8
+
+ARG HERMES_REF=v2026.7.20
+ARG HERMES_COMMIT=3ef6bbd201263d354fd83ec55b3c306ded2eb72a
+
+LABEL org.opencontainers.image.title="Hermes Research Pack" \
+      org.opencontainers.image.description="Reproducible systematic-review runtime for Hermes Agent" \
+      org.opencontainers.image.source="https://github.com/NousResearch/hermes-agent" \
+      org.opencontainers.image.version="${HERMES_REF}" \
+      org.opencontainers.image.revision="${HERMES_COMMIT}" \
+      org.opencontainers.image.licenses="MIT"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HERMES_HOME=/opt/data \
+    PATH="/opt/hermes/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        fonts-lmodern \
+        lmodern \
+        librsvg2-bin \
+        latexmk \
+        pandoc \
+        poppler-utils \
+        procps \
+        python3 \
+        ripgrep \
+        texlive-fonts-recommended \
+        texlive-lang-spanish \
+        texlive-latex-extra \
+        texlive-latex-recommended \
+        texlive-pictures \
+        texlive-plain-generic \
+        texlive-xetex && \
+    rm -rf /var/lib/apt/lists/*
+
+# npm is part of the Node base image. Replace the two vulnerable transitive
+# packages explicitly because the fixed releases are newer than npm's bundle.
+RUN npm install -g npm@11.19.0 && \
+    npm pack undici@6.27.0 --pack-destination /tmp && \
+    npm pack brace-expansion@5.0.8 --pack-destination /tmp && \
+    rm -rf \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/brace-expansion && \
+    mkdir -p \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/brace-expansion && \
+    tar -xzf /tmp/undici-6.27.0.tgz \
+        -C /usr/local/lib/node_modules/npm/node_modules/undici \
+        --strip-components=1 && \
+    tar -xzf /tmp/brace-expansion-5.0.8.tgz \
+        -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        --strip-components=1 && \
+    rm -f /tmp/undici-6.27.0.tgz /tmp/brace-expansion-5.0.8.tgz && \
+    npm cache clean --force
+
+COPY --from=hermes_builder --chown=1000:1000 /opt/hermes /opt/hermes
+COPY --from=uv_source /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=uv_source /usr/local/bin/uvx /usr/local/bin/uvx
+
+RUN chmod +x /opt/hermes/docker/entrypoint.sh && \
+    chown -R 1000:1000 /opt/hermes
+
+VOLUME ["/opt/data"]
+WORKDIR /workspace
+USER 1000:1000
+ENTRYPOINT ["/opt/hermes/docker/entrypoint.sh"]

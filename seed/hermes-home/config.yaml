@@ -1,0 +1,262 @@
+model:
+  default: model-not-configured
+  provider: custom
+  base_url: https://example.invalid/v1
+providers: {}
+fallback_providers:
+- provider: custom
+  model: vision-model-not-configured
+  base_url: https://example.invalid/v1
+  api_key_env: HERMES_INFERENCE_API_KEY
+- provider: custom
+  model: review-model-not-configured
+  base_url: https://example.invalid/v1
+  api_key_env: HERMES_INFERENCE_API_KEY
+credential_pool_strategies: {}
+custom_providers:
+- name: OpenAI-compatible
+  base_url: https://example.invalid/v1
+  api_key_env: HERMES_INFERENCE_API_KEY
+  model: model-not-configured
+toolsets:
+- hermes-cli
+agent:
+  max_turns: 80
+  gateway_timeout: 5400
+  restart_drain_timeout: 120
+  service_tier: ''
+  tool_use_enforcement: auto
+  gateway_timeout_warning: 1800
+  verbose: false
+  reasoning_effort: high
+terminal:
+  backend: local
+  modal_mode: auto
+  cwd: /workspace
+  timeout: 180
+  env_passthrough: []
+  docker_image: nikolaik/python-nodejs:python3.11-nodejs20
+  docker_forward_env: []
+  docker_env: {}
+  singularity_image: docker://nikolaik/python-nodejs:python3.11-nodejs20
+  modal_image: nikolaik/python-nodejs:python3.11-nodejs20
+  daytona_image: nikolaik/python-nodejs:python3.11-nodejs20
+  container_cpu: 1
+  container_memory: 5120
+  container_disk: 51200
+  container_persistent: true
+  docker_volumes: []
+  docker_mount_cwd_to_workspace: false
+  persistent_shell: true
+  lifetime_seconds: 300
+browser:
+  inactivity_timeout: 120
+  command_timeout: 30
+  record_sessions: false
+  allow_private_urls: false
+  camofox:
+    managed_persistence: false
+checkpoints:
+  enabled: true
+  max_snapshots: 50
+file_read_max_chars: 100000
+compression:
+  enabled: true
+  threshold: 0.6
+  target_ratio: 0.25
+  protect_last_n: 24
+  summary_model: ''
+  summary_provider: auto
+  summary_base_url: null
+smart_model_routing:
+  enabled: false
+  max_simple_chars: 160
+  max_simple_words: 28
+  cheap_model: {}
+auxiliary:
+  vision:
+    provider: custom
+    model: vision-model-not-configured
+    base_url: https://example.invalid/v1
+    api_key: ''
+    timeout: 120
+    download_timeout: 30
+  web_extract:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 360
+  compression:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 120
+  session_search:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+  skills_hub:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+  approval:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+  mcp:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+  flush_memories:
+    provider: auto
+    model: ''
+    base_url: ''
+    api_key: ''
+    timeout: 30
+display:
+  compact: false
+  personality: kawaii
+  resume_display: full
+  busy_input_mode: interrupt
+  bell_on_complete: false
+  show_reasoning: false
+  streaming: true
+  inline_diffs: true
+  show_cost: false
+  skin: default
+  tool_progress_command: true
+  tool_progress_overrides:
+    telegram: all
+  tool_preview_length: 160
+  tool_progress: new
+  background_process_notifications: result
+privacy:
+  redact_pii: false
+tts:
+  provider: edge
+  edge:
+    voice: en-US-AriaNeural
+  elevenlabs:
+    voice_id: pNInz6obpgDQGcFmaJgB
+    model_id: eleven_multilingual_v2
+  openai:
+    model: gpt-4o-mini-tts
+    voice: alloy
+  mistral:
+    model: voxtral-mini-tts-2603
+    voice_id: c69964a6-ab8b-4f8a-9465-ec0925096ec8
+  neutts:
+    ref_audio: ''
+    ref_text: ''
+    model: neuphonic/neutts-air-q4-gguf
+    device: cpu
+stt:
+  enabled: true
+  provider: local
+  local:
+    model: base
+    language: ''
+  openai:
+    model: whisper-1
+  mistral:
+    model: voxtral-mini-latest
+voice:
+  record_key: ctrl+b
+  max_recording_seconds: 120
+  auto_tts: false
+  silence_threshold: 200
+  silence_duration: 3.0
+human_delay:
+  mode: 'off'
+  min_ms: 800
+  max_ms: 2500
+context:
+  engine: compressor
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  provider: ''
+delegation:
+  model: ''
+  provider: ''
+  base_url: ''
+  api_key: ''
+  max_iterations: 50
+  reasoning_effort: ''
+prefill_messages_file: ''
+skills:
+  external_dirs: []
+plugins:
+  enabled:
+    - hermes_research
+honcho: {}
+timezone: ''
+discord:
+  require_mention: true
+  free_response_channels: ''
+  allowed_channels: ''
+  auto_thread: true
+  reactions: true
+whatsapp: {}
+approvals:
+  mode: manual
+  timeout: 60
+  destructive_slash_confirm: false
+command_allowlist:
+- shell command via -c/-lc flag
+- script execution via heredoc
+- script execution via -e/-c flag
+quick_commands: {}
+personalities: {}
+security:
+  redact_secrets: true
+  tirith_enabled: true
+  tirith_path: tirith
+  tirith_timeout: 5
+  tirith_fail_open: false
+  website_blocklist:
+    enabled: false
+    domains: []
+    shared_files: []
+cron:
+  wrap_response: true
+logging:
+  level: INFO
+  max_size_mb: 5
+  backup_count: 3
+_config_version: 14
+platform_toolsets:
+  cli:
+  - hermes-cli
+  telegram:
+  - web
+  - terminal
+  - file
+  - skills
+  - todo
+  - cronjob
+model_aliases:
+  research:
+    model: model-not-configured
+    provider: custom
+    base_url: https://example.invalid/v1
+  vision:
+    model: vision-model-not-configured
+    provider: custom
+    base_url: https://example.invalid/v1
+  review:
+    model: review-model-not-configured
+    provider: custom
+    base_url: https://example.invalid/v1

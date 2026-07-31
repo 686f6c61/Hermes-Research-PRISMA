@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: Ruff
+        entry: ruff check
+        language: system
+        types: [python]
+      - id: shellcheck
+        name: ShellCheck
+        entry: shellcheck
+        language: system
+        types: [shell]
+      - id: publication-metadata
+        name: Publication metadata
+        entry: python3 scripts/validate-publication-metadata.py
+        language: system
+        pass_filenames: false
