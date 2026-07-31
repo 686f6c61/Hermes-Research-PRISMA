@@ -60,10 +60,25 @@ def test_landing_links_to_the_installation_guide() -> None:
 
 
 def test_public_pages_link_to_the_versioned_public_release() -> None:
-    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.4.0"
+    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.4.1"
     assert release_url in _read("index.html")
     assert release_url in _read("instalacion.html")
     assert release_url in _read("entregables.html")
+
+
+def test_every_public_page_displays_the_current_version_in_header_and_footer() -> None:
+    for name in (
+        "index.html",
+        "instalacion.html",
+        "metodologia.html",
+        "entregables.html",
+        "atlas-estructural.html",
+    ):
+        page = _read(name)
+        header = page.split('<header class="site-header">', 1)[1].split("</header>", 1)[0]
+        footer = page.split('<footer class="site-footer">', 1)[1].split("</footer>", 1)[0]
+        assert "0.4.1" in header
+        assert "0.4.1" in footer
 
 
 def test_methodology_and_delivery_pages_explain_the_new_contracts() -> None:
@@ -112,7 +127,7 @@ def test_social_cards_are_current_page_specific_and_release_ready() -> None:
 
     for page_name, image_name in cards.items():
         page = _read(page_name)
-        assert f"/assets/images/{image_name}?v=20260731-4" in page
+        assert f"/assets/images/{image_name}?v=20260731-5" in page
         image = LANDING / "assets" / "images" / image_name
         payload = image.read_bytes()
         assert payload[:8] == b"\x89PNG\r\n\x1a\n"
@@ -152,3 +167,21 @@ def test_installation_guide_closes_with_product_value() -> None:
         'href="/#entregables"',
     ):
         assert expected in page
+
+
+def test_landing_explains_how_hermes_guides_the_installation() -> None:
+    home = _read("index.html")
+    installation = _read("instalacion.html")
+    for expected in (
+        "Deja que Hermes te ayude a instalar Hermes.",
+        "Setup_Hermes.txt",
+        "Instalar con Hermes",
+    ):
+        assert expected in home
+    for expected in (
+        "Que Hermes te ayude a instalarlo todo.",
+        "Setup_Hermes.txt",
+        "todas las pruebas de aceptación",
+        "nunca deben pegarse en la conversación",
+    ):
+        assert expected in installation

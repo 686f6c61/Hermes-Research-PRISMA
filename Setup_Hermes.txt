@@ -1,0 +1,226 @@
+HERMES RESEARCH PACK 0.4.1
+INSTRUCCIONES PARA GUIAR UNA INSTALACION COMPLETA
+
+PROPOSITO
+
+Este archivo es un contrato de acompañamiento para Hermes. Si una persona pide
+instalar, configurar o dejar operativo Hermes Research Pack, debes guiarla hasta
+una instalación verificada, no limitarte a enumerar variables ni dar por hecho
+que sabe qué credencial necesita.
+
+REGLAS OBLIGATORIAS
+
+1. Trabaja desde la carpeta que contiene VERSION, hermes-research y
+   docker-compose.research.yml. Comprueba que VERSION indica 0.4.1.
+2. No pidas que se peguen API keys, tokens de Telegram, contraseñas o secretos
+   en la conversación. Indica que deben introducirse localmente cuando
+   ./hermes-research setup los solicite sin eco.
+3. No escribas credenciales en código, README, capturas, comandos del historial,
+   logs, revisiones, ZIP ni Git. La única ubicación admitida es el .env local,
+   con permisos 0600, o un gestor de secretos equivalente.
+4. No inventes endpoints ni nombres de modelo. Doctor debe comprobar GET
+   /models y los tests deben demostrar texto, JSON y visión.
+5. Haz una pregunta cada vez solo cuando falte una decisión humana. Si un dato
+   puede comprobarse en la máquina, compruébalo tú.
+6. No declares éxito por haber levantado Docker. La instalación termina cuando
+   diagnóstico, capacidades, lectura multimodal y smoke test han pasado.
+7. Si una API académica opcional no está disponible, explica qué cobertura se
+   pierde y deja la fuente como omitida de forma trazable. Nunca simules que fue
+   consultada.
+8. No inicies una revisión real hasta completar la aceptación técnica.
+
+SECUENCIA DE ACOMPAÑAMIENTO
+
+FASE 1. COMPROBAR LA MAQUINA
+
+Ejecuta y explica el resultado:
+
+  docker version
+  docker compose version
+  python3 --version
+
+Se necesitan macOS o Linux, Docker con Compose v2, Python 3.11 o superior,
+20 GB libres y, si se usa Docling, 12 GB de RAM recomendados. Si falta un
+requisito, resuélvelo antes de continuar. No cambies ni borres otros
+contenedores, volúmenes o datos.
+
+FASE 2. ELEGIR LA SUPERFICIE
+
+Pregunta si la persona quiere:
+
+  cli       Solo terminal. No necesita Telegram.
+  telegram  Conversación por un bot dedicado.
+  both      Terminal y Telegram. Es el modo recomendado cuando se quiere
+            supervisión remota.
+
+No presentes Slack ni canales no incluidos como si estuvieran soportados.
+
+FASE 3. CONFIGURAR INFERENCIA
+
+La persona necesita un proveedor con API compatible con OpenAI y una URL base
+terminada en /v1. Debe preparar:
+
+  HERMES_INFERENCE_BASE_URL
+  HERMES_INFERENCE_API_KEY
+  HERMES_MODEL_PRIMARY
+  HERMES_MODEL_VISION
+  HERMES_MODEL_REVIEW
+
+Explica las funciones antes de pedir la elección:
+
+  Principal: planificación, cribado, extracción, síntesis y escritura.
+  Visión: lectura de páginas renderizadas, tablas, figuras y diagramas.
+  Revisor: crítica editorial independiente; conviene que no sea el mismo
+  modelo que escribe.
+
+No asumas que un modelo es multimodal por su nombre. Después de setup, doctor
+verifica que los identificadores existen y multimodal-test comprueba que el
+modelo visual realmente interpreta una página.
+
+FASE 4. CONFIGURAR FUENTES ACADEMICAS
+
+Explica qué funciona sin credenciales y qué se amplía con ellas:
+
+  Sin API key: OpenAlex, Crossref, OpenAIRE, Europe PMC y arXiv.
+  Con email: Unpaywall usa un correo de contacto, no una API key.
+  Opcional: Semantic Scholar admite API key para límites más estables.
+  Opcional: Lens Scholarly API necesita HERMES_LENS_API_KEY.
+  Opcional: PubMed/NCBI acepta email y API key para identificación y cuota.
+
+El asistente local puede guardar:
+
+  HERMES_CONTACT_EMAIL
+  HERMES_UNPAYWALL_EMAIL
+  HERMES_SEMANTIC_SCHOLAR_API_KEY
+  HERMES_LENS_API_KEY
+  HERMES_NCBI_EMAIL
+  HERMES_NCBI_API_KEY
+
+Scopus, Web of Science, Embase, PsycINFO, IEEE Xplore, ACM Digital Library y
+otras fuentes de suscripción requieren acceso propio y no deben declararse
+consultadas si no existe integración autorizada. El correo y las claves son
+configuración privada y nunca deben aparecer en artefactos científicos.
+
+FASE 5. CONFIGURAR TELEGRAM, SOLO SI SE ELIGIO
+
+1. Pide crear un bot dedicado con el BotFather oficial mediante /newbot.
+2. Pide abrir el bot recién creado y enviarle /start.
+3. Ejecuta ./hermes-research setup. El asistente valida el token, muestra la
+   identidad del bot y descubre el ID numérico del usuario a partir de /start.
+4. Confirma que TELEGRAM_ALLOWED_USERS contiene únicamente los IDs autorizados.
+   No uses * ni habilites acceso global.
+5. Confirma que TELEGRAM_HOME_CHANNEL y TELEGRAM_PRISMA_CHAT_ID apuntan al chat
+   privado que recibirá avisos y progreso.
+6. No reutilices el mismo token en dos hosts con polling simultáneo.
+
+El token no identifica por sí solo a quién se permite controlar el sistema.
+Una instalación de Telegram no está terminada sin allowlist y chat de avisos.
+
+FASE 6. EJECUTAR EL ASISTENTE LOCAL
+
+Ejecuta:
+
+  ./hermes-research setup
+
+Explica cada pregunta con lenguaje técnico y comprensible. Las credenciales
+opcionales pueden dejarse vacías; las obligatorias no. Al terminar, comprueba:
+
+  test -f .env
+  test "$(stat -f '%Lp' .env 2>/dev/null || stat -c '%a' .env)" = "600"
+
+No muestres el contenido de .env.
+
+FASE 7. DIAGNOSTICAR ANTES DE ARRANCAR
+
+Ejecuta:
+
+  ./hermes-research doctor
+
+Doctor debe validar estructura, rutas, Compose, proveedor, catálogo de modelos,
+bot de Telegram, allowlist y chat cuando correspondan. Corrige cualquier FAIL.
+Un WARN debe explicarse y aceptarse de forma consciente; no lo ocultes.
+
+FASE 8. LEVANTAR EL RUNTIME
+
+Ejecuta:
+
+  ./hermes-research up
+
+En un host limitado puede usarse:
+
+  ./hermes-research up --without-docling
+
+Aclara que omitir Docling conserva el fallback Poppler, pero reduce OCR,
+reconstrucción estructural y extracción de tablas y figuras.
+
+FASE 9. PROBAR CAPACIDADES REALES
+
+Ejecuta en este orden:
+
+  ./hermes-research capability-test
+  ./hermes-research multimodal-test
+  ./hermes-research docling-test
+  ./hermes-research smoke-test
+
+capability-test prueba texto y JSON estructurado. multimodal-test verifica la
+lectura visual. docling-test verifica extracción documental. smoke-test prueba
+adquisición bibliográfica real y artefactos sin lanzar una revisión costosa.
+Si falla una prueba, diagnostica, corrige y repite; no saltes al siguiente paso.
+
+FASE 10. EXPLICAR DATOS, COSTE Y PRIVACIDAD
+
+Antes de la primera revisión, deja claro:
+
+  runtime/workspace     Corpus, decisiones y entregables.
+  runtime/hermes-home   Estado, plugin, sesiones, logs y watchdog.
+  runtime/obsidian      Sincronización local opcional.
+
+Los PDFs y fragmentos pueden salir hacia el proveedor de inferencia. La persona
+debe revisar retención, región, entrenamiento, confidencialidad y límites de
+gasto. Detener Docker no borra los bind mounts. Nunca uses
+docker compose down -v como limpieza rutinaria.
+
+FASE 11. CREAR LA PRIMERA REVISION
+
+Solo después de todas las pruebas, ejecuta:
+
+  ./hermes-research init
+
+Guía la pregunta, ventana temporal, criterios verificables, rango o N final,
+campo metodológico, medio objetivo y política de validación. Recuerda que el N
+es un objetivo operativo y no autoriza a forzar inclusiones.
+
+Después enseña:
+
+  ./hermes-research status
+  ./hermes-research logs --follow
+  ./hermes-research resume
+  ./hermes-research package
+
+En Telegram, explica /start, /nueva_revision, /estado, /reanudar, /cancelar y
+/ayuda. El sistema puede continuar desde artefactos materiales y no depende de
+mantener una conversación abierta.
+
+CRITERIO DE ACEPTACION
+
+Declara la instalación hiperconfigurada únicamente si:
+
+  [ ] VERSION es 0.4.1.
+  [ ] .env existe, tiene permisos 0600 y no está en Git.
+  [ ] El modo elegido coincide con los canales configurados.
+  [ ] El endpoint responde y los tres modelos existen.
+  [ ] capability-test pasa.
+  [ ] multimodal-test pasa.
+  [ ] Docling pasa o su ausencia se ha aceptado explícitamente.
+  [ ] smoke-test pasa con fuentes bibliográficas reales.
+  [ ] En Telegram, bot, allowlist y chat pasan doctor.
+  [ ] Las APIs opcionales se registran como configuradas u omitidas, nunca como
+      ejecutadas sin evidencia.
+  [ ] La persona sabe dónde viven datos, logs, costes y copias de seguridad.
+
+CIERRE QUE DEBES ENTREGAR
+
+Resume el modo instalado, los proveedores configurados sin revelar valores, las
+fuentes académicas habilitadas, las pruebas ejecutadas y su resultado. Señala
+cualquier limitación restante. No digas solo "está levantado": explica qué se
+ha demostrado y qué todavía depende de revisión académica humana.

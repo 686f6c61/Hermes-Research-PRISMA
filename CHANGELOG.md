@@ -4,6 +4,25 @@ All notable changes to Hermes Research Pack are documented here. The project
 uses semantic versioning for its public wrapper, plugin contract and release
 bundle.
 
+## 0.4.1 - 2026-07-31
+
+### Added
+
+- `Setup_Hermes.txt`, an agent-facing acceptance runbook that guides a person
+  through prerequisites, providers, scholarly APIs, Telegram, privacy and tests.
+- Safe Telegram bot identity, private-user discovery and notification-chat
+  validation without printing or placing the bot token in shell commands.
+- Guided configuration for Unpaywall, Semantic Scholar, Lens and NCBI/PubMed.
+
+### Changed
+
+- `setup` now creates an explicit Telegram user allowlist and notification route
+  instead of treating the bot token as a complete configuration.
+- `doctor` now validates Telegram authorization and reports scholarly-source
+  coverage without exposing credential values.
+- Installation, configuration, quickstart and product documentation now explain
+  how Hermes can supervise the complete setup.
+
 ## 0.4.0 - 2026-07-31
 
 ### Added

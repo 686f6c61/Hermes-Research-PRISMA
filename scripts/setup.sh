@@ -49,6 +49,24 @@ prompt_secret() {
   printf '%s' "${value:-${current}}"
 }
 
+normalize_telegram_users() {
+  local raw_value="$1"
+  python3 - "${raw_value}" <<'PY'
+import re
+import sys
+
+parts = [part.strip() for part in sys.argv[1].split(",") if part.strip()]
+if not parts or any(not re.fullmatch(r"[1-9][0-9]*", part) for part in parts):
+    raise SystemExit("Los usuarios de Telegram deben ser IDs numéricos positivos separados por comas")
+print(",".join(dict.fromkeys(parts)))
+PY
+}
+
+valid_email_or_empty() {
+  local value="$1"
+  [[ -z "${value}" || "${value}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
 env_value() {
   local key="$1"
   awk -F= -v key="${key}" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "${ROOT_DIR}/.env"
@@ -61,6 +79,15 @@ primary_model="${HERMES_MODEL_PRIMARY:-$(env_value HERMES_MODEL_PRIMARY)}"
 vision_model="${HERMES_MODEL_VISION:-$(env_value HERMES_MODEL_VISION)}"
 review_model="${HERMES_MODEL_REVIEW:-$(env_value HERMES_MODEL_REVIEW)}"
 telegram_token="${TELEGRAM_BOT_TOKEN:-$(env_value TELEGRAM_BOT_TOKEN)}"
+telegram_allowed_users="${TELEGRAM_ALLOWED_USERS:-$(env_value TELEGRAM_ALLOWED_USERS)}"
+telegram_home_channel="${TELEGRAM_HOME_CHANNEL:-$(env_value TELEGRAM_HOME_CHANNEL)}"
+telegram_prisma_chat_id="${TELEGRAM_PRISMA_CHAT_ID:-$(env_value TELEGRAM_PRISMA_CHAT_ID)}"
+contact_email="${HERMES_CONTACT_EMAIL:-$(env_value HERMES_CONTACT_EMAIL)}"
+unpaywall_email="${HERMES_UNPAYWALL_EMAIL:-$(env_value HERMES_UNPAYWALL_EMAIL)}"
+semantic_scholar_key="${HERMES_SEMANTIC_SCHOLAR_API_KEY:-$(env_value HERMES_SEMANTIC_SCHOLAR_API_KEY)}"
+lens_key="${HERMES_LENS_API_KEY:-$(env_value HERMES_LENS_API_KEY)}"
+ncbi_email="${HERMES_NCBI_EMAIL:-$(env_value HERMES_NCBI_EMAIL)}"
+ncbi_key="${HERMES_NCBI_API_KEY:-$(env_value HERMES_NCBI_API_KEY)}"
 runtime_uid="${HERMES_UID:-$(id -u)}"
 runtime_gid="${HERMES_GID:-$(id -g)}"
 
@@ -76,18 +103,67 @@ vision_model="$(prompt_value "Modelo con visión" "${vision_model:-${primary_mod
 review_model="$(prompt_value "Modelo revisor independiente" "${review_model:-${vision_model:-${primary_model}}}")"
 api_key="$(prompt_secret "API key del proveedor" "${api_key}")"
 
+printf '\nFuentes académicas: las credenciales siguientes son opcionales.\n' >&2
+contact_email="$(prompt_value "Email técnico de contacto para APIs académicas (opcional)" "${contact_email}")"
+unpaywall_email="$(prompt_value "Email para Unpaywall (opcional)" "${unpaywall_email:-${contact_email}}")"
+semantic_scholar_key="$(prompt_secret "API key de Semantic Scholar (opcional)" "${semantic_scholar_key}")"
+lens_key="$(prompt_secret "API key de Lens Scholarly (opcional)" "${lens_key}")"
+ncbi_email="$(prompt_value "Email para NCBI/PubMed (opcional)" "${ncbi_email:-${contact_email}}")"
+ncbi_key="$(prompt_secret "API key de NCBI/PubMed (opcional)" "${ncbi_key}")"
+
 if [[ "${mode}" == "telegram" || "${mode}" == "both" ]]; then
   telegram_token="$(prompt_secret "Token de Telegram" "${telegram_token}")"
+  [[ -n "${telegram_token}" ]] || fail "El modo ${mode} necesita TELEGRAM_BOT_TOKEN"
+
+  bot_identity="$(
+    TELEGRAM_BOT_TOKEN="${telegram_token}" \
+      python3 "${ROOT_DIR}/scripts/telegram-bootstrap.py" identity
+  )" || fail "Telegram no ha podido validar el token"
+  pass "Bot de Telegram validado: ${bot_identity}"
+
+  if [[ "${non_interactive}" == "0" && -z "${telegram_allowed_users}" ]]; then
+    printf '\nAbre %s en Telegram, envía /start y vuelve aquí.\n' "${bot_identity}" >&2
+    read -r -p "Pulsa Intro cuando hayas enviado /start: " _
+    discovered_users="$(
+      TELEGRAM_BOT_TOKEN="${telegram_token}" \
+        python3 "${ROOT_DIR}/scripts/telegram-bootstrap.py" discover-users
+    )" || fail "No se pudieron consultar los mensajes iniciales del bot"
+    if [[ -n "${discovered_users}" ]]; then
+      printf 'Usuarios privados detectados:\n%s\n' "${discovered_users}" >&2
+      telegram_allowed_users="$(printf '%s\n' "${discovered_users}" | awk 'NR == 1 {print $1}')"
+    else
+      warn "No se detectó ningún /start; introduce manualmente tu ID numérico de Telegram"
+    fi
+  fi
+
+  telegram_allowed_users="$(
+    prompt_value "IDs de Telegram autorizados, separados por comas" "${telegram_allowed_users}"
+  )"
+  telegram_allowed_users="$(normalize_telegram_users "${telegram_allowed_users}")" ||
+    fail "TELEGRAM_ALLOWED_USERS no es válido"
+  first_allowed_user="${telegram_allowed_users%%,*}"
+  telegram_home_channel="$(
+    prompt_value "Chat ID privado para avisos" "${telegram_home_channel:-${first_allowed_user}}"
+  )"
+  [[ "${telegram_home_channel}" =~ ^[1-9][0-9]*$ ]] ||
+    fail "El chat de avisos debe ser un ID privado numérico positivo"
+  TELEGRAM_BOT_TOKEN="${telegram_token}" \
+    python3 "${ROOT_DIR}/scripts/telegram-bootstrap.py" check-chat "${telegram_home_channel}" ||
+    fail "El bot no puede acceder al chat de avisos; envíale /start y repite setup"
+  telegram_prisma_chat_id="${telegram_home_channel}"
 else
   telegram_token=""
+  telegram_allowed_users=""
+  telegram_home_channel=""
+  telegram_prisma_chat_id=""
 fi
 
 [[ -n "${base_url}" ]] || fail "Falta HERMES_INFERENCE_BASE_URL"
 [[ -n "${api_key}" ]] || fail "Falta HERMES_INFERENCE_API_KEY"
 [[ -n "${primary_model}" ]] || fail "Falta HERMES_MODEL_PRIMARY"
-if [[ "${mode}" != "cli" && -z "${telegram_token}" ]]; then
-  fail "El modo ${mode} necesita TELEGRAM_BOT_TOKEN"
-fi
+valid_email_or_empty "${contact_email}" || fail "HERMES_CONTACT_EMAIL no parece un email válido"
+valid_email_or_empty "${unpaywall_email}" || fail "HERMES_UNPAYWALL_EMAIL no parece un email válido"
+valid_email_or_empty "${ncbi_email}" || fail "HERMES_NCBI_EMAIL no parece un email válido"
 
 export SETUP_MODE="${mode}"
 export SETUP_BASE_URL="${base_url%/}"
@@ -96,6 +172,15 @@ export SETUP_PRIMARY_MODEL="${primary_model}"
 export SETUP_VISION_MODEL="${vision_model:-${primary_model}}"
 export SETUP_REVIEW_MODEL="${review_model:-${vision_model:-${primary_model}}}"
 export SETUP_TELEGRAM_TOKEN="${telegram_token}"
+export SETUP_TELEGRAM_ALLOWED_USERS="${telegram_allowed_users}"
+export SETUP_TELEGRAM_HOME_CHANNEL="${telegram_home_channel}"
+export SETUP_TELEGRAM_PRISMA_CHAT_ID="${telegram_prisma_chat_id}"
+export SETUP_CONTACT_EMAIL="${contact_email}"
+export SETUP_UNPAYWALL_EMAIL="${unpaywall_email}"
+export SETUP_SEMANTIC_SCHOLAR_KEY="${semantic_scholar_key}"
+export SETUP_LENS_KEY="${lens_key}"
+export SETUP_NCBI_EMAIL="${ncbi_email}"
+export SETUP_NCBI_KEY="${ncbi_key}"
 export SETUP_RUNTIME_UID="${runtime_uid}"
 export SETUP_RUNTIME_GID="${runtime_gid}"
 
@@ -116,6 +201,16 @@ updates = {
     "HERMES_MODEL_VISION": os.environ["SETUP_VISION_MODEL"],
     "HERMES_MODEL_REVIEW": os.environ["SETUP_REVIEW_MODEL"],
     "TELEGRAM_BOT_TOKEN": os.environ["SETUP_TELEGRAM_TOKEN"],
+    "TELEGRAM_ALLOWED_USERS": os.environ["SETUP_TELEGRAM_ALLOWED_USERS"],
+    "TELEGRAM_HOME_CHANNEL": os.environ["SETUP_TELEGRAM_HOME_CHANNEL"],
+    "TELEGRAM_PRISMA_CHAT_ID": os.environ["SETUP_TELEGRAM_PRISMA_CHAT_ID"],
+    "HERMES_CONTACT_EMAIL": os.environ["SETUP_CONTACT_EMAIL"],
+    "HERMES_UNPAYWALL_EMAIL": os.environ["SETUP_UNPAYWALL_EMAIL"],
+    "HERMES_ENABLE_SEMANTIC_SCHOLAR": "1",
+    "HERMES_SEMANTIC_SCHOLAR_API_KEY": os.environ["SETUP_SEMANTIC_SCHOLAR_KEY"],
+    "HERMES_LENS_API_KEY": os.environ["SETUP_LENS_KEY"],
+    "HERMES_NCBI_EMAIL": os.environ["SETUP_NCBI_EMAIL"],
+    "HERMES_NCBI_API_KEY": os.environ["SETUP_NCBI_KEY"],
     "HERMES_UID": os.environ["SETUP_RUNTIME_UID"],
     "HERMES_GID": os.environ["SETUP_RUNTIME_GID"],
 }
@@ -140,6 +235,11 @@ path.write_text("\n".join(rendered) + "\n", encoding="utf-8")
 path.chmod(0o600)
 PY
 
-unset SETUP_API_KEY SETUP_TELEGRAM_TOKEN
+unset SETUP_API_KEY SETUP_TELEGRAM_TOKEN SETUP_SEMANTIC_SCHOLAR_KEY SETUP_LENS_KEY SETUP_NCBI_KEY
 pass "Configuración guardada en .env con permisos 600"
-printf '\nSiguiente paso: ./hermes-research doctor\n'
+printf '\nSiguientes pasos:\n'
+printf '  ./hermes-research doctor\n'
+printf '  ./hermes-research up\n'
+printf '  ./hermes-research capability-test\n'
+printf '  ./hermes-research multimodal-test\n'
+printf '  ./hermes-research smoke-test\n'

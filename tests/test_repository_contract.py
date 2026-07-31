@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -26,6 +27,64 @@ def test_plugin_declares_a_standalone_package() -> None:
         ROOT / "seed" / "hermes-home" / "plugins" / "hermes_research" / "plugin.yaml"
     ).read_text(encoding="utf-8")
     assert re.search(r"^kind:\s*standalone\s*$", manifest, flags=re.MULTILINE)
+
+
+def test_setup_guide_has_the_exact_public_name_and_acceptance_contract() -> None:
+    guide_path = ROOT / "Setup_Hermes.txt"
+    assert guide_path.is_file()
+    assert not (ROOT / ("Set" + "ip_Hermes.txt")).exists()
+    guide = guide_path.read_text(encoding="utf-8")
+    for expected in (
+        "HERMES RESEARCH PACK 0.4.1",
+        "./hermes-research setup",
+        "./hermes-research doctor",
+        "./hermes-research capability-test",
+        "./hermes-research multimodal-test",
+        "./hermes-research smoke-test",
+        "TELEGRAM_ALLOWED_USERS",
+        "HERMES_UNPAYWALL_EMAIL",
+        "HERMES_LENS_API_KEY",
+        "CRITERIO DE ACEPTACION",
+    ):
+        assert expected in guide
+    assert not re.search(r"\bsk-[A-Za-z0-9_-]{20,}\b", guide)
+    assert "/Users/" not in guide
+
+
+def test_setup_and_example_cover_secure_telegram_and_scholarly_sources() -> None:
+    setup = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    doctor = (ROOT / "scripts" / "doctor.sh").read_text(encoding="utf-8")
+    for variable in (
+        "TELEGRAM_ALLOWED_USERS",
+        "TELEGRAM_HOME_CHANNEL",
+        "TELEGRAM_PRISMA_CHAT_ID",
+        "HERMES_CONTACT_EMAIL",
+        "HERMES_UNPAYWALL_EMAIL",
+        "HERMES_SEMANTIC_SCHOLAR_API_KEY",
+        "HERMES_LENS_API_KEY",
+        "HERMES_NCBI_EMAIL",
+        "HERMES_NCBI_API_KEY",
+    ):
+        assert variable in example
+        assert variable in setup
+        assert variable in doctor
+
+
+def test_telegram_bootstrap_rejects_a_missing_token_without_leaking_data() -> None:
+    env = os.environ.copy()
+    env.pop("TELEGRAM_BOT_TOKEN", None)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "telegram-bootstrap.py"), "identity"],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "invalid format" in result.stderr
+    assert "api.telegram.org" not in result.stderr
 
 
 def test_release_builder_excludes_local_state_and_secrets() -> None:

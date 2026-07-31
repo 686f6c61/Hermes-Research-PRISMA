@@ -19,6 +19,8 @@ ensure_file "${ROOT_DIR}/.env.example"
 ensure_file "${ROOT_DIR}/install.sh"
 ensure_file "${ROOT_DIR}/scripts/capability-test.sh"
 ensure_file "${ROOT_DIR}/scripts/docling-test.sh"
+ensure_file "${ROOT_DIR}/scripts/telegram-bootstrap.py"
+ensure_file "${ROOT_DIR}/Setup_Hermes.txt"
 pass "Core package files are present"
 
 section "Environment file"
@@ -33,12 +35,63 @@ esac
 if [[ "${INSTALL_MODE}" != "cli" && -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
   fail "TELEGRAM_BOT_TOKEN is required for ${INSTALL_MODE} mode"
 fi
+if [[ "${INSTALL_MODE}" != "cli" ]]; then
+  [[ -n "${TELEGRAM_ALLOWED_USERS:-}" ]] ||
+    fail "TELEGRAM_ALLOWED_USERS is required for ${INSTALL_MODE} mode"
+  [[ "${TELEGRAM_ALLOWED_USERS}" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] ||
+    fail "TELEGRAM_ALLOWED_USERS must contain positive numeric IDs separated by commas"
+  [[ -n "${TELEGRAM_HOME_CHANNEL:-}" ]] ||
+    fail "TELEGRAM_HOME_CHANNEL is required so the watchdog can deliver notifications"
+  [[ "${TELEGRAM_HOME_CHANNEL}" =~ ^[1-9][0-9]*$ ]] ||
+    fail "TELEGRAM_HOME_CHANNEL must be a positive private-chat ID"
+  [[ "${TELEGRAM_PRISMA_CHAT_ID:-${TELEGRAM_HOME_CHANNEL}}" =~ ^[1-9][0-9]*$ ]] ||
+    fail "TELEGRAM_PRISMA_CHAT_ID must be a positive private-chat ID"
+fi
 [[ -n "${HERMES_INFERENCE_API_KEY:-}" ]] || fail "HERMES_INFERENCE_API_KEY is empty in .env"
 [[ -n "${HERMES_INFERENCE_BASE_URL:-}" ]] || fail "HERMES_INFERENCE_BASE_URL is empty in .env"
 [[ -n "${HERMES_MODEL_PRIMARY:-}" ]] || fail "HERMES_MODEL_PRIMARY is empty in .env"
 [[ -n "${HERMES_MODEL_VISION:-}" ]] || fail "HERMES_MODEL_VISION is empty in .env"
 [[ -n "${HERMES_MODEL_REVIEW:-}" ]] || fail "HERMES_MODEL_REVIEW is empty in .env"
 pass "Mode, provider, models, and required secrets are configured"
+
+section "Scholarly source configuration"
+if [[ -n "${HERMES_CONTACT_EMAIL:-}" ]]; then
+  [[ "${HERMES_CONTACT_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+    fail "HERMES_CONTACT_EMAIL is not a valid email address"
+  pass "A private contact email is configured for polite scholarly API access"
+else
+  warn "HERMES_CONTACT_EMAIL is empty; some scholarly APIs will use lower-rate or anonymous access"
+fi
+if [[ -n "${HERMES_UNPAYWALL_EMAIL:-}" ]]; then
+  [[ "${HERMES_UNPAYWALL_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+    fail "HERMES_UNPAYWALL_EMAIL is not a valid email address"
+  pass "Unpaywall full-text resolution is configured"
+else
+  warn "Unpaywall is disabled because HERMES_UNPAYWALL_EMAIL is empty"
+fi
+if [[ -n "${HERMES_SEMANTIC_SCHOLAR_API_KEY:-}" ]]; then
+  pass "Semantic Scholar authenticated access is configured"
+elif [[ "${HERMES_ENABLE_SEMANTIC_SCHOLAR:-0}" == "1" ]]; then
+  warn "Semantic Scholar is enabled without an API key and may be rate limited"
+else
+  warn "Semantic Scholar is disabled"
+fi
+if [[ -n "${HERMES_LENS_API_KEY:-}" ]]; then
+  pass "Lens Scholarly API access is configured"
+else
+  warn "Lens will be skipped because HERMES_LENS_API_KEY is empty"
+fi
+if [[ -n "${HERMES_NCBI_EMAIL:-}" ]]; then
+  [[ "${HERMES_NCBI_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+    fail "HERMES_NCBI_EMAIL is not a valid email address"
+  if [[ -n "${HERMES_NCBI_API_KEY:-}" ]]; then
+    pass "NCBI/PubMed contact and authenticated access are configured"
+  else
+    pass "NCBI/PubMed contact is configured without an optional API key"
+  fi
+else
+  warn "NCBI/PubMed will use unauthenticated access"
+fi
 
 section "Host directories"
 DATA_DIR="$(resolve_package_path "${HERMES_DATA_DIR:-./runtime/hermes-home}")"
@@ -179,10 +232,26 @@ pass "Model names exist; run capability-test and multimodal-test to prove behavi
 section "Public gateway mode"
 if [[ "${INSTALL_MODE}" == "cli" ]]; then
   pass "CLI-only mode is enabled; Telegram is intentionally optional"
-elif [[ "${HERMES_TELEGRAM_PUBLIC_MENU_ONLY:-}" == "1" ]]; then
-  pass "Public Telegram mode is enabled"
 else
-  warn "HERMES_TELEGRAM_PUBLIC_MENU_ONLY is not set to 1"
+  if TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}" \
+    python3 "${ROOT_DIR}/scripts/telegram-bootstrap.py" identity >/dev/null; then
+    pass "The Telegram token resolves to a valid bot"
+  else
+    fail "Telegram could not validate the configured bot token"
+  fi
+  if TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}" \
+    python3 "${ROOT_DIR}/scripts/telegram-bootstrap.py" \
+      check-chat "${TELEGRAM_HOME_CHANNEL}" >/dev/null; then
+    pass "The Telegram bot can access the configured notification chat"
+  else
+    fail "The Telegram bot cannot access TELEGRAM_HOME_CHANNEL"
+  fi
+  pass "Telegram access is restricted to an explicit numeric allowlist"
+  if [[ "${HERMES_TELEGRAM_PUBLIC_MENU_ONLY:-}" == "1" ]]; then
+    pass "Public Telegram menu mode is enabled"
+  else
+    warn "HERMES_TELEGRAM_PUBLIC_MENU_ONLY is not set to 1"
+  fi
 fi
 
-printf '\nDoctor finished. If the warnings look acceptable, you can continue with the smoke test.\n'
+printf '\nDoctor finished. Resolve every failure and review warnings before capability and smoke tests.\n'

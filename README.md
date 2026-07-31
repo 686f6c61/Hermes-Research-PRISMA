@@ -76,6 +76,17 @@ de una persona especialista en el campo.
 Requisitos: macOS o Linux, Docker con Compose v2, Python 3.11 o superior y un
 proveedor de inferencia compatible con la API de OpenAI.
 
+Si quieres que Hermes te acompañe durante toda la instalación, abre esta
+carpeta con tu agente y dile:
+
+> Lee `Setup_Hermes.txt`, guíame paso a paso y no declares la instalación
+> terminada hasta que hayan pasado todas las pruebas de aceptación.
+
+El archivo convierte la configuración en un recorrido verificable: explica qué
+credenciales preparar, cómo crear y restringir el bot de Telegram, qué APIs
+académicas son opcionales, cómo elegir los tres modelos y qué pruebas deben
+pasar sin pedir que pegues secretos en la conversación.
+
 Descarga el ZIP y su checksum desde la
 [release más reciente](https://github.com/686f6c61/Hermes-Research-PRISMA/releases/latest).
 Después, dentro de la carpeta descomprimida:
@@ -89,8 +100,10 @@ Después, dentro de la carpeta descomprimida:
 ```
 
 `setup` crea la estructura necesaria si es la primera ejecución, solicita el
-proveedor y los modelos sin mostrar los secretos y guarda `.env` con permisos
-`0600`. `up` ejecuta el diagnóstico antes de construir y levantar los
+proveedor y los modelos, configura las fuentes académicas opcionales y guarda
+`.env` con permisos `0600` sin mostrar los secretos. En modo Telegram valida el
+bot, descubre el ID privado tras `/start`, crea la allowlist y comprueba el chat
+de avisos. `up` ejecuta el diagnóstico antes de construir y levantar los
 contenedores.
 
 Para una instalación solo por terminal, elige el modo `cli`. Telegram es
@@ -218,6 +231,7 @@ revisión académica humana antes de enviarse a una revista.
 ## Documentación
 
 - [Inicio en 10 minutos](docs/quickstart.md)
+- [Guía para que Hermes complete la instalación](Setup_Hermes.txt)
 - [Instalación](docs/installation.md)
 - [Configuración](docs/configuration.md)
 - [Comandos](docs/commands.md)
@@ -242,7 +256,7 @@ revisión reproducible, cita la versión exacta y conserva también el
 
 ## Compatibilidad y licencia
 
-La versión `0.4.0` está fijada a Hermes Agent `v2026.7.20`, commit
+La versión `0.4.1` está fijada a Hermes Agent `v2026.7.20`, commit
 `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. No se recomienda mezclar el
 plugin con otra versión de Hermes sin ejecutar la matriz completa de pruebas.
 

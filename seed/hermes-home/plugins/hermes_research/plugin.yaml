@@ -1,5 +1,5 @@
 name: hermes_research
-version: 0.4.0
+version: 0.4.1
 description: "Deterministic systematic-review intake, safe review bindings, status and resume flows, research skills, and publication orchestration."
 author: "Hermes Research Pack"
 kind: standalone

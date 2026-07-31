@@ -29,8 +29,30 @@ Los identificadores deben coincidir exactamente con `GET /models`.
 | Variable | Función |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Token del bot dedicado. Vacío en modo CLI. |
+| `TELEGRAM_ALLOWED_USERS` | IDs numéricos autorizados, separados por comas. Obligatorio en Telegram. |
+| `TELEGRAM_HOME_CHANNEL` | Chat privado que recibe avisos del gateway y watchdog. |
+| `TELEGRAM_PRISMA_CHAT_ID` | Chat privado para el progreso de las revisiones. |
 | `HERMES_TELEGRAM_PUBLIC_MENU_ONLY` | Limita el menú a la superficie pública. |
 | `HERMES_TELEGRAM_DISABLE_FALLBACK_IPS` | Evita transportes alternativos innecesarios. |
+
+`setup` valida el bot, descubre candidatos después de que el propietario envíe
+`/start` y comprueba que el bot accede al chat configurado. No uses `*` ni
+habilites acceso global en una instalación pública.
+
+## Fuentes académicas
+
+| Variable | Función |
+|---|---|
+| `HERMES_CONTACT_EMAIL` | Identidad técnica privada para APIs con acceso cortés. |
+| `HERMES_UNPAYWALL_EMAIL` | Email exigido por Unpaywall para resolver acceso abierto. |
+| `HERMES_ENABLE_SEMANTIC_SCHOLAR` | Permite acceso sin key, sujeto a rate limits. |
+| `HERMES_SEMANTIC_SCHOLAR_API_KEY` | Credencial opcional de Semantic Scholar. |
+| `HERMES_LENS_API_KEY` | Credencial opcional de Lens Scholarly. |
+| `HERMES_NCBI_EMAIL` | Contacto para NCBI/PubMed. |
+| `HERMES_NCBI_API_KEY` | Credencial opcional para mayor cuota de NCBI. |
+
+Los emails y claves viven solo en `.env`. Los artefactos registran si una fuente
+se consultó o se omitió, pero nunca copian esas credenciales.
 
 ## Datos
 

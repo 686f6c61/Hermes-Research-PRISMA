@@ -13,13 +13,20 @@ python3 --version
 
 ## 2. Configura la instalación
 
+Para delegar el acompañamiento completo, pide a tu agente:
+
+> Lee `Setup_Hermes.txt`, guíame paso a paso y no declares la instalación
+> terminada hasta que hayan pasado todas las pruebas de aceptación.
+
 ```bash
 ./hermes-research setup
 ```
 
 Elige `cli`, `telegram` o `both`. Introduce la URL base OpenAI-compatible, la
 API key y tres identificadores de modelo: principal, visión y revisión
-independiente. En modo Telegram también se solicita el token del bot.
+independiente. El asistente ofrece configuración académica adicional. En modo
+Telegram también valida el token, detecta tu ID tras `/start`, restringe el bot
+y fija el chat de avisos.
 
 La clave se escribe sin eco en pantalla. La configuración queda en `.env` con
 permisos `0600` y no se incluye en Git ni en los ZIP.

@@ -2,7 +2,7 @@
 
 ## Hermes Agent
 
-Hermes Research Pack `0.4.0` is tested against:
+Hermes Research Pack `0.4.1` is tested against:
 
 - Hermes Agent release: `v2026.7.20`
 - Hermes Agent commit: `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`
