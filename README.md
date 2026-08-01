@@ -59,15 +59,18 @@ los pesos de selección y la forma de sintetizar:
 
 | Perfil | Unidad de comparación | Fuentes especialmente relevantes |
 | --- | --- | --- |
-| Biomédico | Población, intervención o exposición, comparador y outcome | PubMed, Europe PMC, ClinicalTrials.gov y fuentes generales |
-| Técnico | Sistema, arquitectura, tarea, dataset, benchmark y métrica | arXiv, OpenAlex, Crossref, Semantic Scholar, OpenAIRE y Lens |
-| Ciencias sociales | Constructo, contexto, método, mecanismo y evidencia | OpenAlex, Crossref, Semantic Scholar, OpenAIRE y Lens |
+| Biomédico | Población, intervención o exposición, comparador y outcome | PubMed, Europe PMC, Embase con acceso y fuentes generales |
+| Técnico | Sistema, arquitectura, tarea, dataset, benchmark y métrica | arXiv, OpenAlex, Crossref, IEEE Xplore con acceso, Semantic Scholar, OpenAIRE y Lens |
+| Ciencias sociales | Constructo, contexto, método, mecanismo y evidencia | OpenAlex, Crossref, Scopus o Web of Science con acceso, Semantic Scholar, OpenAIRE y Lens |
 | Educación | Actividad educativa, actor, sistema, contexto y resultado | ERIC, OpenAlex, Crossref, Semantic Scholar, OpenAIRE y Lens |
 | Management | Teoría, contexto, variable, unidad de análisis y resultado | OpenAlex, Crossref, Semantic Scholar, OpenAIRE y Lens |
 | Mixto | Unidad principal declarada y controles de los perfiles secundarios | Combinación trazable de las fuentes pertinentes |
 
-Las fuentes de suscripción, como Scopus, Web of Science, Embase, PsycINFO,
-IEEE Xplore o ACM Digital Library, necesitan acceso y configuración propios.
+Scopus, Web of Science, Embase e IEEE Xplore ya tienen adaptadores opcionales:
+`setup` pide las credenciales institucionales y las activa si existen. Sin
+ellas, el paquete sigue funcionando con fuentes abiertas y registra la omisión
+sin fingir que consultó la base. PsycINFO y ACM Digital Library todavía
+necesitan una exportación autorizada o una integración propia.
 El router mejora la adecuación metodológica, pero no sustituye la validación
 de una persona especialista en el campo.
 
@@ -163,6 +166,12 @@ intervenir en la selección. Después, el empaquetado abre con `index.html`,
 recalcula hashes, elimina rutas e identificadores internos y conserva un estado
 que el watchdog puede reanudar sin repetir fases estables.
 
+Cuando los dos juicios de elegibilidad a texto completo discrepan, la revisión
+no rechaza automáticamente el estudio ni termina como fallida. Conserva todo el
+trabajo, muestra ambos juicios y una recomendación no vinculante, y espera una
+decisión investigadora firmada por DOI. Tras resolver el último caso, continúa
+desde el checkpoint sin repetir las fases ya completadas.
+
 [![Ciclo completo de doce fases de Hermes Research Pack](docs/images/research-cycle-12-phases.png)](https://hermes-prisma.686f6c61.dev/#proceso)
 
 Consulta [docs/architecture.md](docs/architecture.md),
@@ -223,10 +232,11 @@ evaluaciones golden miden por separado precisión y recall del cribado, exactitu
 de extracción y localización de evidencia; un test sintético demuestra el
 harness, pero nunca se presenta como validación científica del modelo.
 
-La disponibilidad de una fuente no autoriza automáticamente su descarga o
-redistribución. La persona responsable debe revisar licencias, términos de uso,
-datos personales, autoría y políticas editoriales. El resultado requiere
-revisión académica humana antes de enviarse a una revista.
+El ciclo no incorpora una adjudicación legal ni bloquea la investigación por
+licencias: presupone que la persona operadora dispone de acceso autorizado a las
+fuentes que configura. Los PDF de origen permanecen en el workspace privado y
+no entran en el paquete público; la revisión académica previa al envío editorial
+sigue siendo una decisión científica, no una revisión jurídica automatizada.
 
 ## Documentación
 
@@ -256,7 +266,7 @@ revisión reproducible, cita la versión exacta y conserva también el
 
 ## Compatibilidad y licencia
 
-La versión `0.4.1` está fijada a Hermes Agent `v2026.7.20`, commit
+La versión `0.5.0` está fijada a Hermes Agent `v2026.7.20`, commit
 `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. No se recomienda mezclar el
 plugin con otra versión de Hermes sin ejecutar la matriz completa de pruebas.
 

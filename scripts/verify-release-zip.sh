@@ -10,6 +10,25 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 umask 077
 
+# Verification executes code from an extracted archive. It must never inherit
+# the maintainer's provider, Telegram, institutional, or signing credentials.
+unset \
+  TELEGRAM_BOT_TOKEN \
+  TELEGRAM_ALLOWED_USERS \
+  TELEGRAM_HOME_CHANNEL \
+  TELEGRAM_PRISMA_CHAT_ID \
+  HERMES_INFERENCE_API_KEY \
+  HERMES_SEMANTIC_SCHOLAR_API_KEY \
+  HERMES_LENS_API_KEY \
+  HERMES_NCBI_API_KEY \
+  HERMES_SCOPUS_API_KEY \
+  HERMES_ELSEVIER_INST_TOKEN \
+  HERMES_WOS_API_KEY \
+  HERMES_EMBASE_API_KEY \
+  HERMES_IEEE_API_KEY \
+  HERMES_ADJUDICATION_SECRET \
+  HERMES_ADJUDICATION_ALLOWED_USERS
+
 tmp_root=""
 cleanup() {
   if [[ -n "${tmp_root}" && -d "${tmp_root}" ]]; then
@@ -75,6 +94,10 @@ pass "Every release file matches its recorded size and SHA-256 hash"
 section "Seed an inert .env for the extracted copy"
 cp "${release_dir}/.env.example" "${release_dir}/.env"
 pass "The extracted copy has a credential-free .env"
+
+# The release verifier renders the optional Docling profile without deploying
+# it. Keep the required authentication value process-local and non-secret.
+export HERMES_DOCLING_API_KEY="${HERMES_DOCLING_API_KEY:-ci-only-docling-key-not-for-runtime-0001}"
 
 section "Install and validate the extracted release"
 bash "${release_dir}/install.sh" >/dev/null

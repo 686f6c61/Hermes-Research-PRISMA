@@ -52,16 +52,24 @@ fi
 [[ -n "${HERMES_MODEL_PRIMARY:-}" ]] || fail "HERMES_MODEL_PRIMARY is empty in .env"
 [[ -n "${HERMES_MODEL_VISION:-}" ]] || fail "HERMES_MODEL_VISION is empty in .env"
 [[ -n "${HERMES_MODEL_REVIEW:-}" ]] || fail "HERMES_MODEL_REVIEW is empty in .env"
-pass "Mode, provider, models, and required secrets are configured"
+[[ -n "${HERMES_RESEARCHER_NAME:-}" ]] || fail "HERMES_RESEARCHER_NAME is empty in .env"
+[[ -n "${HERMES_RESEARCHER_EMAIL:-}" ]] || fail "HERMES_RESEARCHER_EMAIL is empty in .env"
+[[ "${HERMES_RESEARCHER_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+  fail "HERMES_RESEARCHER_EMAIL is not a valid email address"
+[[ -n "${HERMES_ADJUDICATION_SECRET:-}" ]] || fail "HERMES_ADJUDICATION_SECRET is empty in .env"
+[[ -n "${HERMES_DOCLING_API_KEY:-}" ]] || fail "HERMES_DOCLING_API_KEY is empty in .env"
+[[ "${#HERMES_ADJUDICATION_SECRET}" -ge 32 ]] ||
+  fail "HERMES_ADJUDICATION_SECRET must contain at least 32 characters"
+[[ "${#HERMES_DOCLING_API_KEY}" -ge 32 ]] ||
+  fail "HERMES_DOCLING_API_KEY must contain at least 32 characters"
+pass "Mode, provider, researcher identity, models, and required secrets are configured"
 
 section "Scholarly source configuration"
-if [[ -n "${HERMES_CONTACT_EMAIL:-}" ]]; then
-  [[ "${HERMES_CONTACT_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
-    fail "HERMES_CONTACT_EMAIL is not a valid email address"
-  pass "A private contact email is configured for polite scholarly API access"
-else
-  warn "HERMES_CONTACT_EMAIL is empty; some scholarly APIs will use lower-rate or anonymous access"
-fi
+[[ -n "${HERMES_CONTACT_EMAIL:-}" ]] ||
+  fail "HERMES_CONTACT_EMAIL is required for scholarly API identification"
+[[ "${HERMES_CONTACT_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
+  fail "HERMES_CONTACT_EMAIL is not a valid email address"
+pass "A private contact email is configured for polite scholarly API access"
 if [[ -n "${HERMES_UNPAYWALL_EMAIL:-}" ]]; then
   [[ "${HERMES_UNPAYWALL_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] ||
     fail "HERMES_UNPAYWALL_EMAIL is not a valid email address"
@@ -91,6 +99,25 @@ if [[ -n "${HERMES_NCBI_EMAIL:-}" ]]; then
   fi
 else
   warn "NCBI/PubMed will use unauthenticated access"
+fi
+for institutional_source in \
+  "Scopus:HERMES_SCOPUS_API_KEY" \
+  "Web of Science:HERMES_WOS_API_KEY" \
+  "Embase:HERMES_EMBASE_API_KEY" \
+  "IEEE Xplore:HERMES_IEEE_API_KEY"
+do
+  source_name="${institutional_source%%:*}"
+  variable_name="${institutional_source##*:}"
+  if [[ -n "${!variable_name:-}" ]]; then
+    pass "${source_name} institutional adapter is configured"
+  else
+    warn "${source_name} is not configured; the open-source search plan remains available"
+  fi
+done
+if [[ -n "${HERMES_ELSEVIER_INST_TOKEN:-}" ]]; then
+  pass "Elsevier institutional entitlement token is configured for Scopus/Embase"
+else
+  warn "No Elsevier institutional token is configured; API-key entitlements alone will be used"
 fi
 
 section "Host directories"

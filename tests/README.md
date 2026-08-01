@@ -3,6 +3,19 @@
 Este directorio documenta la batería mínima que debe pasar el paquete antes de
 considerarse apto para una distribución pública.
 
+## Preparar la suite local
+
+```bash
+python3 -m venv .venv
+make install-dev PYTHON=./.venv/bin/python
+make check PYTHON=./.venv/bin/python
+```
+
+No uses el Python global sin instalar antes
+`build/research-requirements.txt`. La suite de análisis estructural requiere
+`networkx`; una colección parcial por dependencia ausente no representa el
+estado del runtime Docker ni el resultado completo de las pruebas.
+
 ## Niveles de verificación
 
 1. `doctor`

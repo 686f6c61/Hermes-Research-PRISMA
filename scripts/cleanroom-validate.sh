@@ -62,6 +62,10 @@ section "Seed an inert environment file"
 cp "${cleanroom_dir}/.env.example" "${cleanroom_dir}/.env"
 pass "A credential-free .env was created"
 
+# Compose requires Docling authentication even when the profile is only
+# rendered. This process-local value is deliberately not written to the ZIP.
+export HERMES_DOCLING_API_KEY="${HERMES_DOCLING_API_KEY:-ci-only-docling-key-not-for-runtime-0001}"
+
 section "Install the clean-room copy"
 bash "${cleanroom_dir}/install.sh" >/dev/null
 pass "install.sh completed inside the clean-room copy"

@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import pathlib
 import sys
@@ -267,6 +268,48 @@ def test_publication_zip_uses_doi_and_removes_private_record_identity(tmp_path):
         ["field", "value"],
         [{"field": "record_id", "value": record_id}],
     )
+    gold_dir = review / "paper/audit/gold"
+    write_csv(
+        gold_dir / "title-abstract-gold.csv",
+        ["record_id", "assigned_doi", "decision"],
+        [{"record_id": record_id, "assigned_doi": doi, "decision": "include"}],
+    )
+    write_csv(
+        gold_dir / "full-text-gold.csv",
+        ["record_id", "assigned_doi", "decision"],
+        [{"record_id": record_id, "assigned_doi": doi, "decision": "include_ft"}],
+    )
+    (gold_dir / "extraction-gold.jsonl").write_text(
+        json.dumps(
+            {
+                "record": {
+                    "record_id": record_id,
+                    "assigned_doi": doi,
+                    "evidence": "Supported result",
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (gold_dir / "DATASET-CARD.md").write_text(
+        "# Operational reference set\n",
+        encoding="utf-8",
+    )
+    (gold_dir / "gold-manifest.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "path": "paper/audit/gold/extraction-gold.jsonl",
+                        "bytes": 1,
+                        "sha256": "private-placeholder",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
     bundle = package_publication_bundle.build_bundle(review)
 
@@ -287,3 +330,21 @@ def test_publication_zip_uses_doi_and_removes_private_record_identity(tmp_path):
         summary = archive.read(summary_name).decode("utf-8")
         assert "record_id" not in summary
         assert "doi,10.1234/public-example" in summary
+        gold_name = next(
+            name
+            for name in names
+            if name.endswith("paper/audit/gold/extraction-gold.jsonl")
+        )
+        public_gold = archive.read(gold_name).decode("utf-8")
+        assert "record_id" not in public_gold
+        assert '"doi": "10.1234/public-example"' in public_gold
+        manifest_name = next(
+            name
+            for name in names
+            if name.endswith("paper/audit/gold/gold-manifest.json")
+        )
+        public_manifest = json.loads(archive.read(manifest_name))
+        item = public_manifest["files"][0]
+        public_gold_bytes = archive.read(gold_name)
+        assert item["bytes"] == len(public_gold_bytes)
+        assert item["sha256"] == hashlib.sha256(public_gold_bytes).hexdigest()

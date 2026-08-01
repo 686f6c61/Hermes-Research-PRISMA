@@ -100,6 +100,65 @@ def csv_has_data_rows(path: pathlib.Path) -> bool:
         return False
 
 
+def pending_disagreement_cases(review_dir: pathlib.Path) -> list[dict[str, object]]:
+    """Return preserved cases only when the screening checkpoint is valid JSON."""
+
+    path = review_dir / "screening" / "pending-disagreements.json"
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    unresolved_case_ids = {
+        str(case_id)
+        for case_id in (payload.get("unresolved_case_ids") or [])
+        if str(case_id)
+    }
+    cases = payload.get("cases")
+    if not isinstance(cases, list):
+        return []
+    valid_cases = [case for case in cases if isinstance(case, dict)]
+    if unresolved_case_ids:
+        return [
+            case
+            for case in valid_cases
+            if str(case.get("case_id") or "") in unresolved_case_ids
+        ]
+    return valid_cases
+
+
+def notify_screening_disagreements(
+    review_dir: pathlib.Path,
+    scripts_dir: pathlib.Path,
+    log_path: pathlib.Path,
+) -> None:
+    """Ask the configured researcher without making notification a hard failure."""
+
+    notifier = scripts_dir / "telegram_prisma_notify.py"
+    if not notifier.is_file():
+        return
+    try:
+        with log_path.open("a", encoding="utf-8") as log_handle:
+            subprocess.run(
+                [
+                    "python3",
+                    str(notifier),
+                    "event",
+                    "disagreement",
+                    str(review_dir),
+                    "--force",
+                ],
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                check=False,
+                timeout=60,
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--review-dir", type=pathlib.Path, required=True)
@@ -163,6 +222,25 @@ def main() -> int:
             log_path=log_path,
         )
         if exit_code != 0:
+            pending_cases = pending_disagreement_cases(review_dir)
+            if exit_code == 3 and pending_cases:
+                state.update(
+                    {
+                        "status": "waiting_for_researcher",
+                        "phase": "screening_disagreement",
+                        "pending_disagreements": len(pending_cases),
+                        "paused_at": now_iso(),
+                        "finished_at": now_iso(),
+                        "heartbeat_at": now_iso(),
+                    }
+                )
+                write_json_atomic(ledger_path, state)
+                notify_screening_disagreements(
+                    review_dir,
+                    scripts_dir,
+                    log_path,
+                )
+                return 0
             state.update(
                 {
                     "status": "failed",

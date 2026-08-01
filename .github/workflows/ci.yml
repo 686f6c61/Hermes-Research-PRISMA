@@ -72,6 +72,8 @@ jobs:
 
       - name: Validate Compose
         run: docker compose -f docker-compose.research.yml --profile docling config >/dev/null
+        env:
+          HERMES_DOCLING_API_KEY: ci-only-docling-key-not-for-runtime-0001
 
   image:
     runs-on: ubuntu-latest
@@ -88,9 +90,13 @@ jobs:
 
       - name: Build runtime image
         run: docker compose -f docker-compose.research.yml build hermes
+        env:
+          HERMES_DOCLING_API_KEY: ci-only-docling-key-not-for-runtime-0001
 
       - name: Prove plugin-only Hermes integration
         run: bash scripts/plugin-only-test.sh --skip-build
+        env:
+          HERMES_DOCLING_API_KEY: ci-only-docling-key-not-for-runtime-0001
 
       - name: Scan repository for committed secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25

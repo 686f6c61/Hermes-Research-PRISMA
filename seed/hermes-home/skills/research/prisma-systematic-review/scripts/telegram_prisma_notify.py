@@ -15,6 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from review_runtime_state import determine_state
+from screening_disagreement import resolution_status
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[4]
@@ -230,6 +231,86 @@ def bootstrap_message(review_dir: pathlib.Path) -> tuple[str, str]:
     return key, "\n".join(lines)
 
 
+def decision_label(value: object) -> str:
+    """Render internal eligibility labels as plain researcher-facing Spanish."""
+
+    normalized = str(value or "").strip().lower()
+    return "incluir" if normalized in {"include", "include_ft"} else "excluir"
+
+
+def disagreement_message(review_dir: pathlib.Path) -> tuple[str, str]:
+    """Explain preserved A/B conflicts and ask for explicit DOI-level decisions."""
+
+    status = resolution_status(review_dir)
+    cases = status["unresolved_cases"]
+    case_ids = [str(case.get("case_id") or "") for case in cases]
+    key = "disagreement|" + "|".join(case_ids)
+    lines = [
+        "Hermes Research",
+        "Decisión científica necesaria",
+        f"Revisión: {review_label(review_dir)}",
+        (
+            f"Hay {len(cases)} discrepancia(s) en el cribado a texto completo. "
+            "Todo el trabajo realizado está guardado; la revisión no ha fallado "
+            "ni ha descartado estos estudios."
+        ),
+    ]
+    for case in cases[:5]:
+        doi = str(case.get("assigned_doi") or "").strip()
+        title = " ".join(str(case.get("title") or "").split())
+        if len(title) > 120:
+            title = title[:117].rstrip() + "..."
+        reviewer_a = (
+            case.get("reviewer_a")
+            if isinstance(case.get("reviewer_a"), dict)
+            else {}
+        )
+        reviewer_b = (
+            case.get("reviewer_b")
+            if isinstance(case.get("reviewer_b"), dict)
+            else {}
+        )
+        recommendation = (
+            case.get("automatic_recommendation")
+            if isinstance(case.get("automatic_recommendation"), dict)
+            else {}
+        )
+        lines.extend(
+            [
+                "",
+                f"DOI: {doi}",
+                f"Título: {title}",
+                (
+                    f"Juicio A: {decision_label(reviewer_a.get('decision'))}; "
+                    f"juicio B: {decision_label(reviewer_b.get('decision'))}."
+                ),
+                (
+                    "Recomendación automática, no vinculante: "
+                    f"{decision_label(recommendation.get('decision'))}."
+                ),
+                "¿Deseas incluirlo o excluirlo del corpus final?",
+            ]
+        )
+    if len(cases) > 5:
+        lines.append(
+            f"\nHay {len(cases) - 5} casos adicionales. "
+            "Usa `/research disagreements` para verlos."
+        )
+    lines.extend(
+        [
+            "",
+            "Decide con una justificación científica:",
+            "`/research resolve DOI include MOTIVO`",
+            "`/research resolve DOI exclude MOTIVO`",
+            (
+                "Tras registrar la decisión firmada, el ciclo se reanudará "
+                "automáticamente desde el checkpoint."
+            ),
+        ]
+    )
+    return key, "\n".join(lines)
+
+
 def dispatch(review_dir: pathlib.Path, bucket: str, key: str, text: str, force: bool = False) -> int:
     state = load_notify_state(review_dir)
     last_key = str(state.get(bucket, ""))
@@ -254,7 +335,10 @@ def main() -> int:
     phase_parser.add_argument("--force", action="store_true")
 
     event_parser = subparsers.add_parser("event", help="Send a named lifecycle event")
-    event_parser.add_argument("event_name", choices=["bootstrap", "start", "final"])
+    event_parser.add_argument(
+        "event_name",
+        choices=["bootstrap", "start", "final", "disagreement"],
+    )
     event_parser.add_argument("review_dir")
     event_parser.add_argument("--force", action="store_true")
 
@@ -272,6 +356,16 @@ def main() -> int:
     if args.event_name == "start":
         key, text = phase_message(review_dir, label="Inicio de ejecucion autonoma")
         return dispatch(review_dir, "start", f"{key}|{now_iso()[:16]}", text, force=args.force)
+
+    if args.event_name == "disagreement":
+        key, text = disagreement_message(review_dir)
+        return dispatch(
+            review_dir,
+            "disagreement",
+            key,
+            text,
+            force=args.force,
+        )
 
     key, text = final_message(review_dir)
     return dispatch(review_dir, "final", key, text, force=args.force)

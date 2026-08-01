@@ -28,6 +28,10 @@ independiente. El asistente ofrece configuración académica adicional. En modo
 Telegram también valida el token, detecta tu ID tras `/start`, restringe el bot
 y fija el chat de avisos.
 
+También solicita nombre y email del investigador responsable. Esa identidad se
+usa para firmar decisiones de discrepancia, aprobación final y cambios
+materiales del protocolo; el sistema no la inventa.
+
 La clave se escribe sin eco en pantalla. La configuración queda en `.env` con
 permisos `0600` y no se incluye en Git ni en los ZIP.
 
@@ -85,6 +89,19 @@ Para automatización:
 Los artefactos aparecen dentro de `runtime/workspace/<revision>/`. El estado
 no depende de mantener abierta la terminal: se reconstruye desde archivos y el
 watchdog puede reanudar una fase incompleta.
+
+Si el estado es `waiting_for_researcher`, no se ha perdido el trabajo ni se ha
+rechazado el estudio. Revisa los dos juicios y la recomendación no vinculante:
+
+```bash
+./hermes-research disagreements <review>
+./hermes-research resolve-screening <review> \
+  --doi 10.xxxx/xxxxx \
+  --decision include \
+  --reason "Razón científica vinculada al protocolo"
+```
+
+El ciclo se reanuda automáticamente tras resolver el último DOI.
 
 ## 6. Comprueba PDF y paquete final
 

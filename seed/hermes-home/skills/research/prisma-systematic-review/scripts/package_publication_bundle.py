@@ -33,6 +33,11 @@ ROOT_FILES = [
     ("paper/audit/claim-evidence-ledger.csv", "paper/audit/claim-evidence-ledger.csv"),
     ("paper/audit/evidence-coverage.md", "paper/audit/evidence-coverage.md"),
     ("paper/audit/evidence-coverage.json", "paper/audit/evidence-coverage.json"),
+    ("paper/audit/gold/DATASET-CARD.md", "paper/audit/gold/DATASET-CARD.md"),
+    ("paper/audit/gold/gold-manifest.json", "paper/audit/gold/gold-manifest.json"),
+    ("paper/audit/gold/title-abstract-gold.csv", "paper/audit/gold/title-abstract-gold.csv"),
+    ("paper/audit/gold/full-text-gold.csv", "paper/audit/gold/full-text-gold.csv"),
+    ("paper/audit/gold/extraction-gold.jsonl", "paper/audit/gold/extraction-gold.jsonl"),
     ("paper/audit/integrity-audit/integrity-audit.md", "paper/audit/integrity-audit/integrity-audit.md"),
     ("paper/audit/integrity-audit/integrity-audit.json", "paper/audit/integrity-audit/integrity-audit.json"),
     ("paper/journal-readiness/journal-readiness-report.md", "paper/journal-readiness/journal-readiness-report.md"),
@@ -62,6 +67,9 @@ ROOT_FILES = [
     ("protocol/deliverables-contract.json", "protocol/deliverables-contract.json"),
     ("protocol/contracts-manifest.json", "protocol/contracts-manifest.json"),
     ("protocol/amendments.jsonl", "protocol/amendments.jsonl"),
+    ("screening/title-abstract-dual-review.csv", "screening/title-abstract-dual-review.csv"),
+    ("screening/full-text-dual-review.csv", "screening/full-text-dual-review.csv"),
+    ("screening/screening-reliability.json", "screening/screening-reliability.json"),
     ("notes/pipeline-state.json", "notes/pipeline-state.json"),
     ("notes/job-ledger.json", "notes/job-ledger.json"),
     ("selection/n-range-audit.md", "selection/n-range-audit.md"),
@@ -296,6 +304,123 @@ def public_csv_bytes(
     return output.getvalue().encode("utf-8")
 
 
+def public_json_value(
+    value: object,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> object:
+    """Remove private identifiers recursively from JSON-compatible values."""
+
+    if isinstance(value, dict):
+        rendered: dict[str, object] = {}
+        record_id = str(value.get("record_id") or "").strip().lower()
+        mapped_doi = id_to_doi.get(record_id, "")
+        for key, item in value.items():
+            if key == "record_id":
+                continue
+            public_key = "doi" if key == "assigned_doi" else str(key)
+            public_item = public_json_value(
+                item,
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+            if public_key == "doi" and isinstance(public_item, str):
+                public_item = normalize_doi(public_item) or mapped_doi
+            rendered[public_key] = public_item
+        return rendered
+    if isinstance(value, list):
+        return [
+            public_json_value(
+                item,
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+            for item in value
+        ]
+    if isinstance(value, str):
+        label = "doi" if value.strip() in {"record_id", "assigned_doi"} else value
+        return replace_private_runtime_values(
+            label,
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
+        )
+    return value
+
+
+def public_json_bytes(
+    source: pathlib.Path,
+    *,
+    review_dir: pathlib.Path,
+    id_to_doi: dict[str, str],
+) -> bytes:
+    """Serialize JSON or JSONL after structural identifier sanitization."""
+
+    if source.suffix.lower() == ".jsonl":
+        rendered_lines: list[str] = []
+        for line in source.read_text(
+            encoding="utf-8",
+            errors="ignore",
+        ).splitlines():
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                value = line
+            public_value = public_json_value(
+                value,
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+            rendered_lines.append(
+                json.dumps(
+                    public_value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+        return ("\n".join(rendered_lines) + "\n").encode("utf-8")
+
+    try:
+        value = json.loads(source.read_text(encoding="utf-8", errors="ignore"))
+    except json.JSONDecodeError:
+        value = source.read_text(encoding="utf-8", errors="ignore")
+    public_value = public_json_value(
+        value,
+        review_dir=review_dir,
+        id_to_doi=id_to_doi,
+    )
+    if (
+        source.name == "gold-manifest.json"
+        and isinstance(public_value, dict)
+    ):
+        public_files: list[dict[str, object]] = []
+        for item in public_value.get("files", []):
+            if not isinstance(item, dict):
+                continue
+            relative = str(item.get("path") or "")
+            candidate = review_dir / relative
+            if not candidate.is_file() or candidate == source:
+                continue
+            payload = public_file_bytes(
+                candidate,
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+            public_files.append(
+                {
+                    **item,
+                    "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+        public_value["files"] = public_files
+    return (
+        json.dumps(public_value, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+
+
 def public_file_bytes(
     source: pathlib.Path,
     *,
@@ -305,6 +430,12 @@ def public_file_bytes(
     """Return the exact sanitized bytes stored in the publication archive."""
     if source.suffix.lower() == ".csv":
         return public_csv_bytes(source, review_dir=review_dir, id_to_doi=id_to_doi)
+    if source.suffix.lower() in {".json", ".jsonl"}:
+        return public_json_bytes(
+            source,
+            review_dir=review_dir,
+            id_to_doi=id_to_doi,
+        )
     if source.suffix.lower() in PUBLIC_TEXT_SUFFIXES:
         text = source.read_text(encoding="utf-8", errors="ignore")
         return replace_private_runtime_values(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from . import intake
@@ -35,14 +36,32 @@ def _binding_key(event: Any) -> str:
     return f"{platform}:{chat_id}:{user_id}" if user_id else f"{platform}:{chat_id}"
 
 
+_UNTRUSTED_BINDING_RE = re.compile(r"(?<!\S)--binding(?:\s+\S+)?")
+
+
+def _strip_untrusted_binding(text: str) -> str:
+    """Remove every binding supplied in user-controlled command text."""
+
+    first, separator, rest = (text or "").partition("\n")
+    sanitized = _UNTRUSTED_BINDING_RE.sub("", first)
+    sanitized = " ".join(sanitized.split())
+    return f"{sanitized}{separator}{rest}" if separator else sanitized
+
+
 def _inject_binding(text: str, binding_key: str) -> str:
-    """Add ``--binding`` to a /research command if it is not present yet."""
-    if not binding_key or "--binding " in text:
+    """Replace user input with the binding derived from the gateway event."""
+
+    text = _strip_untrusted_binding(text)
+    if not binding_key:
         return text
-    if "\n" in text:
-        first, rest = text.split("\n", 1)
-        return f"{first} --binding {binding_key}\n{rest}"
-    return f"{text} --binding {binding_key}"
+    first, separator, rest = text.partition("\n")
+    command_parts = first.split(maxsplit=2)
+    if len(command_parts) >= 2 and command_parts[0].split("@", 1)[0].lower() == "/research":
+        suffix = f" {command_parts[2]}" if len(command_parts) == 3 else ""
+        first = f"{command_parts[0]} {command_parts[1]} --binding {binding_key}{suffix}"
+    else:
+        first = f"{first} --binding {binding_key}"
+    return f"{first}{separator}{rest}" if separator else first
 
 
 def _command_parts(text: str) -> tuple[str, str]:
@@ -122,6 +141,36 @@ def rewrite_public_research_flow(event: Any, **kwargs: Any) -> dict[str, str] | 
 
     if command == "/reanudar":
         rewritten = "/research resume"
+        if binding_key:
+            rewritten += f" --binding {binding_key}"
+        if suffix:
+            rewritten += f" {suffix}"
+        return {"action": "rewrite", "text": rewritten}
+
+    if command in {"/discrepancias", "/desacuerdos"}:
+        rewritten = "/research disagreements"
+        if binding_key:
+            rewritten += f" --binding {binding_key}"
+        return {"action": "rewrite", "text": rewritten}
+
+    if command in {"/resolver_cribado", "/resolver_discrepancia"}:
+        rewritten = "/research resolve"
+        if binding_key:
+            rewritten += f" --binding {binding_key}"
+        if suffix:
+            rewritten += f" {suffix}"
+        return {"action": "rewrite", "text": rewritten}
+
+    if command in {"/aprobar_revision", "/aprobar"}:
+        rewritten = "/research approve"
+        if binding_key:
+            rewritten += f" --binding {binding_key}"
+        if suffix:
+            rewritten += f" {suffix}"
+        return {"action": "rewrite", "text": rewritten}
+
+    if command in {"/rechazar_revision", "/rechazar"}:
+        rewritten = "/research reject"
         if binding_key:
             rewritten += f" --binding {binding_key}"
         if suffix:

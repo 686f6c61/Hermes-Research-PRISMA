@@ -781,6 +781,195 @@ def command_package(args: argparse.Namespace, env: dict[str, str]) -> int:
     )
 
 
+def command_adjudicate(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Create a researcher-signed final decision for one review."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    script = prisma_script("record_human_adjudication.py")
+    ensure_exists(script, "human adjudication script")
+    return run_command(
+        [
+            "python3",
+            str(script),
+            str(review_dir),
+            "--decision",
+            args.decision,
+            "--reason",
+            args.reason or "",
+        ],
+        env=env,
+        cwd=review_dir.parent,
+    )
+
+
+def command_amendment(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Inspect or approve a pending protocol amendment."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    pending = review_dir / "protocol" / "pending-amendment.json"
+    if not args.approve:
+        if not pending.is_file():
+            print("No protocol amendment is pending.")
+            return 0
+        print(pending.read_text(encoding="utf-8"))
+        return 0
+    if not (args.reason or "").strip():
+        raise SystemExit("--reason is required when approving a protocol amendment")
+    script = prisma_script("approve_protocol_change.py")
+    ensure_exists(script, "protocol change approval script")
+    return run_command(
+        [
+            "python3",
+            str(script),
+            str(review_dir),
+            "--reason",
+            args.reason,
+        ],
+        env=env,
+        cwd=review_dir.parent,
+    )
+
+
+def screening_disagreement_payload(
+    review_dir: Path,
+    env: dict[str, str],
+) -> dict[str, object]:
+    """Return validated resolution status from the bundled helper."""
+
+    script = prisma_script("resolve_screening_disagreement.py")
+    ensure_exists(script, "screening disagreement script")
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            str(review_dir),
+            "--list",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+        cwd=review_dir.parent,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(
+            completed.stderr
+            or completed.stdout
+            or "Could not read screening disagreements"
+        )
+    payload = json.loads(completed.stdout)
+    return payload if isinstance(payload, dict) else {}
+
+
+def command_disagreements(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Show every unresolved DOI-level eligibility disagreement."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    payload = screening_disagreement_payload(review_dir, env)
+    cases = payload.get("unresolved_cases") or []
+    if not isinstance(cases, list) or not cases:
+        print("No unresolved full-text eligibility disagreements.")
+        return 0
+    print(
+        f"{len(cases)} full-text disagreement(s) require a researcher decision. "
+        "No study has been automatically rejected."
+    )
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        reviewer_a = (
+            case.get("reviewer_a")
+            if isinstance(case.get("reviewer_a"), dict)
+            else {}
+        )
+        reviewer_b = (
+            case.get("reviewer_b")
+            if isinstance(case.get("reviewer_b"), dict)
+            else {}
+        )
+        recommendation = (
+            case.get("automatic_recommendation")
+            if isinstance(case.get("automatic_recommendation"), dict)
+            else {}
+        )
+        print()
+        print(f"DOI: {case.get('assigned_doi', '')}")
+        print(f"Title: {' '.join(str(case.get('title') or '').split())}")
+        print(
+            f"Reviewer A: {reviewer_a.get('decision', '')}; "
+            f"reviewer B: {reviewer_b.get('decision', '')}"
+        )
+        print(
+            "Non-binding automatic recommendation: "
+            f"{recommendation.get('decision', '')}"
+        )
+    print()
+    print(
+        "Resolve each case with: "
+        "./hermes-research resolve-screening REVIEW --doi DOI "
+        "--decision include|exclude --reason \"SCIENTIFIC REASON\""
+    )
+    return 0
+
+
+def command_resolve_screening(
+    args: argparse.Namespace,
+    env: dict[str, str],
+) -> int:
+    """Sign one researcher decision and resume after the last disagreement."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    script = prisma_script("resolve_screening_disagreement.py")
+    ensure_exists(script, "screening disagreement script")
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            str(review_dir),
+            "--doi",
+            args.doi,
+            "--decision",
+            args.decision,
+            "--reason",
+            args.reason,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+        cwd=review_dir.parent,
+    )
+    if completed.returncode != 0:
+        sys.stderr.write(
+            completed.stderr
+            or completed.stdout
+            or "Could not record the researcher decision\n"
+        )
+        return completed.returncode
+    payload = json.loads(completed.stdout)
+    unresolved = int(payload.get("unresolved") or 0)
+    print(
+        f"Signed `{args.decision}` for DOI `{args.doi}`. "
+        f"Unresolved disagreements: {unresolved}."
+    )
+    if unresolved:
+        print(
+            "The review remains safely paused. Resolve the remaining cases "
+            "before the final corpus continues."
+        )
+        return 0
+    print(
+        "All disagreements are resolved. Resuming from the durable checkpoint "
+        "without repeating search, retrieval, or A/B judgments."
+    )
+    resume_args = argparse.Namespace(
+        review=str(review_dir),
+        foreground=False,
+        skip_publication_layer=args.skip_publication_layer,
+    )
+    return command_resume(resume_args, env)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the public CLI surface for the research package."""
 
@@ -905,6 +1094,62 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
     package.add_argument("--autopilot", action="store_true", help="Run publication_autopilot.py before packaging")
     package.set_defaults(func=command_package)
+
+    adjudicate = subparsers.add_parser(
+        "adjudicate",
+        help="Sign a final researcher approval or rejection",
+    )
+    adjudicate.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    adjudicate.add_argument("--decision", choices=("approved", "rejected"), required=True)
+    adjudicate.add_argument("--reason", default="", help="Short scientific basis for the decision")
+    adjudicate.set_defaults(func=command_adjudicate)
+
+    amendment = subparsers.add_parser(
+        "amendment",
+        help="Inspect or approve a material protocol change",
+    )
+    amendment.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    amendment.add_argument("--approve", action="store_true", help="Sign the exact pending proposal")
+    amendment.add_argument("--reason", default="", help="Scientific reason for approving the change")
+    amendment.set_defaults(func=command_amendment)
+
+    disagreements = subparsers.add_parser(
+        "disagreements",
+        help="Show DOI-level full-text eligibility conflicts",
+    )
+    disagreements.add_argument(
+        "review",
+        nargs="?",
+        help="Review path or name. Defaults to the latest review.",
+    )
+    disagreements.set_defaults(func=command_disagreements)
+
+    resolve_screening = subparsers.add_parser(
+        "resolve-screening",
+        help="Sign one full-text eligibility decision and resume when complete",
+    )
+    resolve_screening.add_argument(
+        "review",
+        nargs="?",
+        help="Review path or name. Defaults to the latest review.",
+    )
+    resolve_screening.add_argument("--doi", required=True)
+    resolve_screening.add_argument(
+        "--decision",
+        choices=("include", "exclude"),
+        required=True,
+    )
+    resolve_screening.add_argument(
+        "--reason",
+        required=True,
+        help="Scientific justification for this eligibility decision",
+    )
+    resolve_screening.add_argument(
+        "--skip-publication-layer",
+        action="store_true",
+        help="Resume only the PRISMA/extraction pipeline",
+    )
+    resolve_screening.set_defaults(func=command_resolve_screening)
 
     return parser
 

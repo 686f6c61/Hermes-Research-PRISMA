@@ -24,6 +24,20 @@ Usa `./hermes-research setup` para los cambios habituales.
 
 Los identificadores deben coincidir exactamente con `GET /models`.
 
+## Identidad y decisiones firmadas
+
+| Variable | Función |
+|---|---|
+| `HERMES_RESEARCHER_NAME` | Nombre del investigador responsable que firma decisiones. |
+| `HERMES_RESEARCHER_EMAIL` | Email del investigador responsable. |
+| `HERMES_RESEARCHER_ORCID` | ORCID opcional. |
+| `HERMES_ADJUDICATION_SECRET` | Secreto local generado por `setup` para vincular firmas y contratos. |
+| `HERMES_ADJUDICATION_ALLOWED_USERS` | IDs de Telegram autorizados para decidir, derivados de la allowlist. |
+
+El secreto nunca entra en manuscritos, ZIP, logs o Git. Una discrepancia de
+texto completo solo queda resuelta si la decisión está firmada para el DOI, el
+caso y el protocolo exactos.
+
 ## Telegram
 
 | Variable | Función |
@@ -50,9 +64,16 @@ habilites acceso global en una instalación pública.
 | `HERMES_LENS_API_KEY` | Credencial opcional de Lens Scholarly. |
 | `HERMES_NCBI_EMAIL` | Contacto para NCBI/PubMed. |
 | `HERMES_NCBI_API_KEY` | Credencial opcional para mayor cuota de NCBI. |
+| `HERMES_SCOPUS_API_KEY` | Credencial opcional para Scopus Search API. |
+| `HERMES_ELSEVIER_INST_TOKEN` | Token institucional opcional compartido por Scopus/Embase. |
+| `HERMES_WOS_API_KEY` | Credencial opcional para Web of Science Starter API. |
+| `HERMES_EMBASE_API_KEY` | Credencial opcional para Embase Search API. |
+| `HERMES_IEEE_API_KEY` | Credencial opcional para IEEE Xplore Metadata API. |
 
 Los emails y claves viven solo en `.env`. Los artefactos registran si una fuente
-se consultó o se omitió, pero nunca copian esas credenciales.
+se consultó o se omitió, pero nunca copian esas credenciales. Si falta acceso
+institucional, la búsqueda abierta continúa y el `search-log.csv` conserva la
+omisión como limitación de cobertura.
 
 ## Datos
 

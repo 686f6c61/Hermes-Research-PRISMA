@@ -22,7 +22,8 @@ test: ## Run the public regression suite.
 
 compose-check: ## Validate the Docker Compose contract without starting services.
 	cp -n .env.example .env 2>/dev/null || true
-	docker compose -f docker-compose.research.yml --profile docling config >/dev/null
+	HERMES_DOCLING_API_KEY=$${HERMES_DOCLING_API_KEY:-compose-validation-only-0000000000000000} \
+		docker compose -f docker-compose.research.yml --profile docling config >/dev/null
 
 check: lint test compose-check ## Run the local merge gate.
 

@@ -9,9 +9,16 @@ import tempfile
 
 import yaml
 
-
 HERMES_HOME = pathlib.Path(os.environ.get("HERMES_HOME", "/opt/data"))
 CONFIG_PATH = HERMES_HOME / "config.yaml"
+PUBLIC_TELEGRAM_COMMANDS = [
+    "start",
+    "nueva_revision",
+    "estado",
+    "reanudar",
+    "cancelar",
+    "ayuda",
+]
 
 
 def required_env(name: str) -> str:
@@ -30,6 +37,14 @@ def unique_models(*models: str) -> list[str]:
         if value and value not in result:
             result.append(value)
     return result
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    """Return a boolean environment variable using explicit truthy values."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def render_config() -> None:
@@ -79,6 +94,23 @@ def render_config() -> None:
         "vision": {"model": vision, "provider": "custom", "base_url": base_url},
         "review": {"model": reviewer, "provider": "custom", "base_url": base_url},
     }
+
+    # Let the upstream Telegram adapter publish the product menu itself. A
+    # six-command cap plus replace priority keeps built-in operational commands
+    # dispatchable when typed while removing them from public autocomplete.
+    telegram_extra = (
+        config.setdefault("platforms", {})
+        .setdefault("telegram", {})
+        .setdefault("extra", {})
+    )
+    if env_flag("HERMES_TELEGRAM_PUBLIC_MENU_ONLY", default=True):
+        telegram_extra["command_menu"] = {
+            "max_commands": len(PUBLIC_TELEGRAM_COMMANDS),
+            "priority_mode": "replace",
+            "priority": PUBLIC_TELEGRAM_COMMANDS,
+        }
+    else:
+        telegram_extra.pop("command_menu", None)
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(

@@ -17,6 +17,14 @@
       "version": "v1",
       "required_columns": ["assigned_doi", "title_original", "decision", "reason", "reason_detail", "full_text_path", "reviewer"]
     },
+    "screening/title-abstract-dual-review.csv": {
+      "version": "v1",
+      "required_columns": ["assigned_doi", "reviewer_a_decision", "reviewer_b_decision", "agreement", "final_decision", "reviewer_a_engine", "reviewer_b_engine"]
+    },
+    "screening/full-text-dual-review.csv": {
+      "version": "v1",
+      "required_columns": ["assigned_doi", "reviewer_a_decision", "reviewer_b_decision", "agreement", "adjudicator_decision", "final_decision", "reviewer_a_engine", "reviewer_b_engine", "adjudicator_engine"]
+    },
     "extraction/extraction-table.csv": {
       "version": "v2",
       "required_columns": ["assigned_doi", "title_original", "work_type", "empirical_type", "method_used", "evidence_snippet", "evidence_location", "extraction_confidence", "key_findings"]
@@ -43,7 +51,11 @@
     "protocol/method-contract.json": ["schema_version", "review_mode", "unit_of_comparison", "critical_appraisal"],
     "protocol/synthesis-plan.json": ["schema_version", "unit_of_comparison", "decision_rules"],
     "notes/pipeline-state.json": ["schema_version", "steps", "events"],
+    "screening/screening-reliability.json": ["schema_version", "stages", "interpretation"],
+    "screening/full-text-review-checkpoint.json": ["schema_version", "signature", "reviewer_a", "reviewer_b"],
+    "screening/pending-disagreements.json": ["schema_version", "status", "message", "cases"],
     "paper/audit/model-capabilities.json": ["schema_version", "roles", "status"],
-    "paper/audit/evidence-coverage.json": ["schema_version", "critical_claims", "status"]
+    "paper/audit/evidence-coverage.json": ["schema_version", "critical_claims", "status"],
+    "paper/audit/gold/gold-manifest.json": ["schema_version", "scope", "external_human_ground_truth", "counts", "files"]
   }
 }

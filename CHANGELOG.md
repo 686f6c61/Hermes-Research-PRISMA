@@ -4,6 +4,56 @@ All notable changes to Hermes Research Pack are documented here. The project
 uses semantic versioning for its public wrapper, plugin contract and release
 bundle.
 
+## 0.5.0 - 2026-08-01
+
+### Added
+
+- Two independent screening judgments, agreement metrics and an automatic,
+  non-binding recommendation for full-text eligibility disagreements.
+- A recoverable `waiting_for_researcher` checkpoint: disputed studies are
+  decided by DOI with a scientific reason and a signature bound to the frozen
+  protocol and exact case.
+- CLI and Telegram commands to inspect and resolve screening disagreements,
+  with automatic resume only after the final pending case.
+- Durable full-text judgment checkpoints that preserve completed search,
+  downloads and A/B decisions across restarts.
+- Signed protocol change proposals and approvals, with an inspectable
+  explanation before any material amendment is applied.
+- Operational gold datasets for screening, extraction and evidence location,
+  with explicit provenance and no claim of external human ground truth.
+- Optional institutional adapters for Scopus, Web of Science, Embase and IEEE
+  Xplore, including traceable omission when credentials are unavailable.
+- Required researcher identity, contact email, adjudication secret and Docling
+  service key in the guided installation.
+
+### Changed
+
+- Full-text disagreements can no longer become automatic final exclusions.
+  Resolved cases remain preserved so a later interruption cannot ask the
+  researcher to decide the same evidence again.
+- The watchdog now uses the versioned deterministic runner by default, applies
+  bounded retries with exponential backoff and never overrides a researcher
+  checkpoint.
+- PDF retrieval validates destination, redirect, size, content type and PDF
+  magic before storing a document.
+- Public Telegram bindings are imposed by the gateway event instead of trusting
+  user-supplied binding text.
+- Research defaults now enable PII redaction, remove free Telegram terminal and
+  file tools, clear broad command allowlists and use a neutral personality.
+- Docling is isolated on an internal network and requires a generated API key.
+- The publication gate now requires paired screening evidence, reliability
+  metrics and signed resolution of every full-text disagreement.
+- Setup, doctor, methodology, artifacts and command documentation now explain
+  the human decision boundary and institutional-source coverage.
+
+### Security
+
+- Added SSRF and oversized-download regression tests, signed-adjudication tests,
+  Telegram binding-spoof tests, bounded-watchdog tests and checkpoint recovery
+  tests.
+- Secret-bearing adjudication and disagreement records use private permissions,
+  atomic replacement and filesystem synchronization.
+
 ## 0.4.1 - 2026-07-31
 
 ### Added

@@ -8,6 +8,8 @@ import json
 import pathlib
 from datetime import datetime, timezone
 
+from screening_disagreement import resolution_status
+
 PHASES = [
     (
         "Fase 1. Intake y protocolo",
@@ -40,7 +42,10 @@ PHASES = [
         "Fase 3. Screening",
         [
             "screening/title-abstract.csv",
+            "screening/title-abstract-dual-review.csv",
             "screening/full-text.csv",
+            "screening/full-text-dual-review.csv",
+            "screening/screening-reliability.json",
         ],
         "Continuar con screening title/abstract y full text con trazabilidad.",
     ),
@@ -178,6 +183,46 @@ def determine_state(review_dir: pathlib.Path, stalled_minutes: int) -> dict:
     next_action = PHASES[0][2]
     status = "completed"
 
+    disagreement_state = resolution_status(review_dir)
+    if disagreement_state["unresolved"]:
+        pending_count = int(disagreement_state["unresolved"])
+        return {
+            "status": "waiting_for_researcher",
+            "current_phase": "Fase 3. Screening",
+            "next_phase": "Decisión de elegibilidad a texto completo",
+            "next_action": (
+                f"Resolver {pending_count} discrepancia(s) por DOI. "
+                "La recomendación automática es informativa; el corpus final "
+                "no continuará hasta recibir una decisión firmada."
+            ),
+            "blocker": (
+                "Checkpoint científico pendiente. Todo el trabajo anterior "
+                "está preservado y la revisión no ha fallado."
+            ),
+            "pending_disagreements": pending_count,
+            "last_update": last_update.isoformat() if last_update else "",
+            "updated_at": now_iso(),
+            "resume_message": (
+                "Revisa `/research disagreements` y decide con "
+                "`/research resolve DOI include|exclude MOTIVO`."
+            ),
+        }
+    if disagreement_state["total"]:
+        return {
+            "status": "in_progress",
+            "current_phase": "Fase 3. Screening",
+            "next_phase": "Fase 4. Extracción",
+            "next_action": (
+                "Todas las discrepancias tienen decisión firmada. Reanudar "
+                "desde el checkpoint sin repetir búsqueda, descarga ni juicios A/B."
+            ),
+            "blocker": "",
+            "pending_disagreements": 0,
+            "last_update": last_update.isoformat() if last_update else "",
+            "updated_at": now_iso(),
+            "resume_message": "Las decisiones están listas; reanuda el ciclo.",
+        }
+
     # Check if a manual 'completed' state should be preserved
     notes_dir = review_dir / "notes"
     existing_state = _load_existing_state(notes_dir)
@@ -271,6 +316,9 @@ def write_markdown(path: pathlib.Path, state: dict) -> None:
 
 ## Siguiente acción
 {state['next_action']}
+
+## Discrepancias pendientes
+{state.get('pending_disagreements', 0)}
 
 ## Bloqueo
 {state['blocker'] or 'ninguno'}

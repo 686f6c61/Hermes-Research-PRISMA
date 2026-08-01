@@ -481,7 +481,7 @@ def write_editorial_statements(review_dir: pathlib.Path, submission_dir: pathlib
         "data-availability-statement.md": [
             "# Data Availability Statement",
             "",
-            "All derived review data needed to audit the synthesis are provided in the publication package, including search logs, screening decisions, full-text exclusions, extraction tables, selection matrices, figure gates, and journal-readiness reports. Source PDFs are included only when locally available and legally usable for audit.",
+            "All derived review data needed to audit the synthesis are provided in the publication package, including search logs, screening decisions, full-text exclusions, extraction tables, selection matrices, figure gates, and journal-readiness reports. Source PDFs remain in the private review workspace and are not included in the public package.",
         ],
         "code-availability-statement.md": [
             "# Code Availability Statement",

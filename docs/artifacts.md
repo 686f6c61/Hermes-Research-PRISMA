@@ -36,7 +36,13 @@ Cuando la revisión entra en búsqueda, cribado y extracción, deberían aparece
 - `searches/search-log.csv`
 - `records/master-records.csv`
 - `screening/title-abstract.csv`
+- `screening/title-abstract-dual-review.csv`
 - `screening/full-text.csv`
+- `screening/full-text-dual-review.csv`
+- `screening/screening-reliability.json`
+- `screening/full-text-review-checkpoint.json`
+- `screening/pending-disagreements.json`
+- `screening/disagreement-resolutions.jsonl`
 - `extraction/extraction-table.csv`
 - `selection/ultraquality-shortlist.csv`
 - `fulltext/docling/manifest.csv`
@@ -73,6 +79,15 @@ formato de intercambio independiente.
 duración, páginas, tablas, figuras, versión y error saneado. Los nombres de los
 activos se derivan del DOI; no se publican identificadores internos.
 
+`full-text-review-checkpoint.json` vincula los dos juicios con el protocolo y
+el hash del texto completo. `pending-disagreements.json` conserva todos los
+casos A/B, incluso después de resolverlos, y distingue cuántos siguen
+pendientes. `disagreement-resolutions.jsonl` es un registro append-only de las
+decisiones firmadas por DOI y de su razón científica.
+
+Estos tres archivos son privados: preservan trazabilidad y reanudación, pero no
+entran en el paquete público con identidades internas o datos de firma.
+
 ## Artefactos de publicación
 
 Cuando la capa editorial termina bien, deberían existir:
@@ -85,6 +100,10 @@ Cuando la capa editorial termina bien, deberían existir:
 - `paper/audit/claim-evidence-ledger.csv`
 - `paper/audit/evidence-coverage.json`
 - `paper/audit/publication-gate.json`
+- `paper/audit/gold/gold-manifest.json`
+- `paper/audit/gold/title-abstract-gold.csv`
+- `paper/audit/gold/full-text-gold.csv`
+- `paper/audit/gold/extraction-gold.jsonl`
 - `paper/package/index.html`
 - `paper/package/deliverables-manifest.json`
 - `paper/audit/publication-gate.md`
@@ -95,6 +114,11 @@ El ZIP de publicación abre también con `index.html`. Sus anexos eliminan
 `record_id`, convierten `assigned_doi` en `doi`, sustituyen nombres de PDF
 internos por DOI y sanea rutas locales. Los registros sin DOI pueden conservarse
 en conteos de exclusión, pero no reciben una identidad pública opaca.
+
+El directorio `paper/audit/gold/` contiene la referencia operacional generada
+durante el ciclo. El manifiesto declara si cada etiqueta procede de consenso,
+recomendación o decisión investigadora firmada y deja explícito que no es un
+ground truth humano externo.
 
 ## Los doce bloques de entrega
 

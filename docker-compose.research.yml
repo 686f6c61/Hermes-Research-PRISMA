@@ -35,6 +35,9 @@ x-hermes-common: &hermes-common
     - ${HERMES_DATA_DIR:-./runtime/hermes-home}:/opt/data
     - ${HERMES_WORKSPACE_DIR:-./runtime/workspace}:/workspace
     - ${OBSIDIAN_VAULT_HOST_PATH:-./runtime/obsidian}:/vaults/obsidian
+  networks:
+    - hermes-egress
+    - docling-internal
 
 services:
   hermes:
@@ -61,6 +64,11 @@ services:
       PRISMA_WATCHDOG_COOLDOWN_MINUTES: ${PRISMA_WATCHDOG_COOLDOWN_MINUTES:-30}
       PRISMA_WATCHDOG_AGENT_TIMEOUT_SECONDS: ${PRISMA_WATCHDOG_AGENT_TIMEOUT_SECONDS:-3600}
       PRISMA_WATCHDOG_MODELS: ${PRISMA_WATCHDOG_MODELS:-}
+      PRISMA_WATCHDOG_EXECUTION_MODE: ${PRISMA_WATCHDOG_EXECUTION_MODE:-deterministic}
+      PRISMA_WATCHDOG_MAX_ATTEMPTS_PER_STATE: ${PRISMA_WATCHDOG_MAX_ATTEMPTS_PER_STATE:-3}
+      PRISMA_WATCHDOG_MAX_TOTAL_ATTEMPTS: ${PRISMA_WATCHDOG_MAX_TOTAL_ATTEMPTS:-12}
+      PRISMA_WATCHDOG_MAX_BACKOFF_MINUTES: ${PRISMA_WATCHDOG_MAX_BACKOFF_MINUTES:-360}
+      PRISMA_WATCHDOG_ALLOW_YOLO: ${PRISMA_WATCHDOG_ALLOW_YOLO:-0}
     # The watchdog exists to resume stalled PRISMA reviews without user action.
     entrypoint: ["bash", "/opt/data/bin/start-watchdog.sh"]
 
@@ -93,6 +101,7 @@ services:
       DOCLING_SERVE_LOG_LEVEL: WARNING
       DOCLING_SERVE_ENG_LOC_NUM_WORKERS: "1"
       DOCLING_SERVE_ENG_LOC_SHARE_MODELS: "true"
+      DOCLING_SERVE_API_KEY: ${HERMES_DOCLING_API_KEY:?Set HERMES_DOCLING_API_KEY with ./hermes-research setup}
       DOCLING_SERVE_MAX_FILE_SIZE: ${DOCLING_SERVE_MAX_FILE_SIZE:-52428800}
       DOCLING_SERVE_MAX_NUM_PAGES: ${DOCLING_SERVE_MAX_NUM_PAGES:-200}
       DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: ${DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT:-240}
@@ -102,8 +111,15 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health',timeout=5)"
+        - "import os, urllib.request; r=urllib.request.Request('http://127.0.0.1:5001/health',headers={'X-Api-Key':os.environ['DOCLING_SERVE_API_KEY']}); urllib.request.urlopen(r,timeout=5)"
       interval: 15s
       timeout: 8s
       retries: 20
       start_period: 180s
+    networks:
+      - docling-internal
+
+networks:
+  hermes-egress:
+  docling-internal:
+    internal: true

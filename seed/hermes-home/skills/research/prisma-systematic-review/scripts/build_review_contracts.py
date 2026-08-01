@@ -4,15 +4,21 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
 from datetime import datetime, timezone
 
 from artifact_contracts import CONTRACT_VERSION, read_json, write_json_atomic
+from protocol_change_control import (
+    ProtocolChangeApprovalRequired,
+    archive_applied_change,
+    require_change_approval,
+)
 from review_mode_router import mode_config
 
-CONTRACTS_VERSION = "hermes.review-contracts/v1"
+CONTRACTS_VERSION = "hermes.review-contracts/v2"
 
 
 def clean_label(value: str) -> str:
@@ -267,6 +273,40 @@ def build_contracts(review_dir: pathlib.Path) -> list[pathlib.Path]:
         protocol_dir / "journal-profile.json": build_journal_profile(intake),
         protocol_dir / "deliverables-contract.json": build_delivery_contract(),
     }
+    existing = {
+        path: read_json(path, {}) or {}
+        for path in payloads
+        if path.is_file()
+    }
+    approved_change = require_change_approval(
+        review_dir,
+        existing,
+        payloads,
+    )
+    if existing and approved_change is None and all(existing.get(path) == payload for path, payload in payloads.items()):
+        manifest_path = protocol_dir / "contracts-manifest.json"
+        contracts = [
+            {
+                "path": str(path.relative_to(review_dir)),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in payloads
+        ]
+        current_manifest = read_json(manifest_path, {}) or {}
+        if (
+            current_manifest.get("schema_version") == CONTRACTS_VERSION
+            and current_manifest.get("artifact_contract_version") == CONTRACT_VERSION
+            and current_manifest.get("contracts") == contracts
+        ):
+            return [*payloads.keys(), manifest_path]
+        meta = {
+            "schema_version": CONTRACTS_VERSION,
+            "artifact_contract_version": CONTRACT_VERSION,
+            "generated_at": now,
+            "contracts": contracts,
+        }
+        write_json_atomic(manifest_path, meta)
+        return [*payloads.keys(), manifest_path]
     written = [write_json_atomic(path, payload) for path, payload in payloads.items()]
     amendments_path = protocol_dir / "amendments.jsonl"
     if not amendments_path.exists():
@@ -288,9 +328,37 @@ def build_contracts(review_dir: pathlib.Path) -> list[pathlib.Path]:
         "schema_version": CONTRACTS_VERSION,
         "artifact_contract_version": CONTRACT_VERSION,
         "generated_at": now,
-        "contracts": [str(path.relative_to(review_dir)) for path in written],
+        "contracts": [
+            {
+                "path": str(path.relative_to(review_dir)),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in written
+        ],
     }
     written.append(write_json_atomic(protocol_dir / "contracts-manifest.json", meta))
+    if approved_change is not None:
+        archive_path = archive_applied_change(review_dir, approved_change)
+        with amendments_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "schema_version": "hermes.protocol-amendment/v2",
+                        "timestamp": now,
+                        "type": "protocol_change_applied",
+                        "proposal_id": approved_change["proposal_id"],
+                        "reason": approved_change["approval"].get("reason", ""),
+                        "researcher": approved_change["approval"].get("researcher", {}),
+                        "archive": str(archive_path.relative_to(review_dir)),
+                        "affected_artifacts": [
+                            item["contract"]
+                            for item in approved_change["contracts"]
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
     return written
 
 
@@ -301,7 +369,20 @@ def main() -> int:
     review_dir = args.review_dir.expanduser().resolve()
     if not review_dir.exists():
         raise SystemExit(f"Review directory not found: {review_dir}")
-    paths = build_contracts(review_dir)
+    try:
+        paths = build_contracts(review_dir)
+    except ProtocolChangeApprovalRequired as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "needs_approval",
+                    "message": str(exc),
+                    "pending": str(review_dir / "protocol" / "pending-amendment.json"),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     print(json.dumps({"status": "pass", "contracts": [str(path) for path in paths]}, ensure_ascii=False))
     return 0
 

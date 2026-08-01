@@ -89,3 +89,25 @@ def test_process_environment_overrides_dotenv(
     monkeypatch.setenv("HERMES_MODEL_VISION", "temporary-model")
 
     assert cli.load_package_env()["HERMES_MODEL_VISION"] == "temporary-model"
+
+
+def test_parser_exposes_recoverable_screening_resolution() -> None:
+    cli = load_public_cli()
+    parser = cli.build_parser()
+
+    args = parser.parse_args(
+        [
+            "resolve-screening",
+            "systematic-review-example",
+            "--doi",
+            "10.1000/example",
+            "--decision",
+            "include",
+            "--reason",
+            "The population and outcome match the frozen protocol.",
+        ]
+    )
+
+    assert args.doi == "10.1000/example"
+    assert args.decision == "include"
+    assert args.func is cli.command_resolve_screening

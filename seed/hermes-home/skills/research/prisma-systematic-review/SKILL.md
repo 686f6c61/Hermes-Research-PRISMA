@@ -609,7 +609,8 @@ Good sources depend on domain, but commonly include:
 - `arXiv`
 - `Lens` when `HERMES_LENS_API_KEY` or `LENS_API_KEY` is configured
 - `Europe PMC` and `PubMed` for biomedical, health, psychology, neuroscience or explicitly enabled searches
-- domain-specific databases such as `Scopus`, `Web of Science`, `Embase`, `PsycINFO`, `ERIC`, `CINAHL`
+- `Scopus`, `Web of Science`, `Embase` and `IEEE Xplore` when their `HERMES_*_API_KEY` credentials are configured
+- other domain-specific databases such as `PsycINFO`, `ERIC` or `CINAHL` through an authorized export or a dedicated adapter
 
 ## Optional Search and Full-Text Environment Variables
 
@@ -623,6 +624,8 @@ Good sources depend on domain, but commonly include:
 - `HERMES_DISABLE_ARXIV=1` and `HERMES_DISABLE_SEMANTIC_SCHOLAR=1`: disables rate-limited sources during public clean-room runs.
 - `HERMES_NCBI_EMAIL` and `HERMES_NCBI_API_KEY`: optional PubMed/NCBI contact and rate-limit configuration.
 - `SEMANTIC_SCHOLAR_API_KEY` or `HERMES_SEMANTIC_SCHOLAR_API_KEY`: optional Semantic Scholar API key.
+- `HERMES_SCOPUS_API_KEY`, `HERMES_WOS_API_KEY`, `HERMES_EMBASE_API_KEY`, `HERMES_IEEE_API_KEY`: optional institutional source credentials. Missing values must skip only that source.
+- `HERMES_ELSEVIER_INST_TOKEN`: optional institutional entitlement token for Scopus and Embase. Never serialize it into a request log or review artifact.
 
 ## DOI Workflow
 

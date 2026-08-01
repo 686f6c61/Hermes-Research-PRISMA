@@ -31,11 +31,16 @@ target = package_root / "skills" / "research-manifest.json"
 
 entries = []
 for skill_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-    scripts = sorted(str(path.relative_to(root)) for path in skill_dir.rglob("*.py"))
+    scripts = sorted(
+        str(path.relative_to(root))
+        for path in skill_dir.rglob("*.py")
+        if not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
+    )
     references = sorted(
         str(path.relative_to(root))
         for path in skill_dir.rglob("*.md")
         if path.name != "SKILL.md"
+        and not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
     )
     entries.append(
         {

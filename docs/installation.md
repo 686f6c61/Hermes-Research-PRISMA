@@ -71,10 +71,13 @@ Después solicita:
 5. modelo revisor;
 6. API key;
 7. email de contacto y credenciales académicas opcionales;
-8. token de Telegram cuando corresponde;
-9. usuarios autorizados y chat privado de avisos.
+8. nombre, email y ORCID opcional de la persona investigadora responsable;
+9. token de Telegram cuando corresponde;
+10. usuarios autorizados y chat privado de avisos.
 
-Los secretos no se muestran y `.env` queda con permisos `0600`.
+La identidad firma adjudicaciones y cambios de protocolo; no se inventa a
+partir del manuscrito. Los secretos de firma no se muestran y `.env` queda con
+permisos `0600`.
 
 ## Telegram
 
@@ -103,11 +106,13 @@ asistente también permite configurar:
 - API key opcional de Semantic Scholar;
 - API key opcional de Lens Scholarly;
 - email y API key opcional de NCBI/PubMed.
+- credenciales opcionales de Scopus, Web of Science, Embase e IEEE Xplore.
 
 Una credencial ausente no se inventa ni bloquea fuentes independientes: la
-fuente afectada queda omitida de forma trazable. Fuentes de suscripción como
-Scopus, Web of Science, Embase, PsycINFO, IEEE Xplore o ACM Digital Library
-requieren acceso e integración propios.
+fuente afectada queda omitida de forma trazable. Scopus, Web of Science, Embase
+e IEEE Xplore se consultan mediante sus adaptadores cuando el acceso está
+activo. PsycINFO y ACM Digital Library requieren una exportación autorizada o
+una integración propia.
 
 ## Arranque
 
@@ -145,6 +150,27 @@ registros reales y termina antes del cribado intensivo. No deja una revisión
 editorial consumiendo inferencia en segundo plano. Ese límite no se aplica a
 una revisión normal.
 
+## Pausas por discrepancia
+
+Un desacuerdo entre los dos juicios de elegibilidad a texto completo no se
+convierte en rechazo ni en error de ejecución. El estado pasa a
+`waiting_for_researcher` y conserva búsqueda, PDF, protocolo, juicios,
+recomendación automática y conteos.
+
+Consulta y resuelve por DOI:
+
+```bash
+./hermes-research disagreements <review>
+./hermes-research resolve-screening <review> \
+  --doi 10.xxxx/xxxxx \
+  --decision include \
+  --reason "Cumple población, fenómeno y resultado del protocolo."
+```
+
+La recomendación automática no es vinculante. La revisión continúa después de
+la última decisión firmada y reutiliza el checkpoint si no han cambiado el
+protocolo o el texto completo.
+
 ## Instalación no interactiva
 
 Para automatización local, exporta las variables sin escribirlas en scripts:
@@ -158,6 +184,8 @@ export HERMES_MODEL_VISION=model-vision
 export HERMES_MODEL_REVIEW=model-review
 export HERMES_CONTACT_EMAIL=research-api@example.org
 export HERMES_UNPAYWALL_EMAIL=research-api@example.org
+export HERMES_RESEARCHER_NAME='Research Owner'
+export HERMES_RESEARCHER_EMAIL=owner@example.org
 ./hermes-research setup --non-interactive
 ```
 

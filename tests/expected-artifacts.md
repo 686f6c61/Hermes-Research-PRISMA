@@ -19,7 +19,13 @@ dejar al menos estos rastros materiales:
 Más adelante, cuando la revisión avanza, deberían aparecer también:
 
 - `screening/title-abstract.csv`
+- `screening/title-abstract-dual-review.csv`
 - `screening/full-text.csv`
+- `screening/full-text-dual-review.csv`
+- `screening/screening-reliability.json`
+- `screening/full-text-review-checkpoint.json`
+- `screening/pending-disagreements.json`
+- `screening/disagreement-resolutions.jsonl` (solo si el investigador resuelve una discrepancia)
 - `extraction/extraction-table.csv`
 - `fulltext/docling/manifest.csv`
 - `fulltext/docling/status.json`
@@ -41,6 +47,8 @@ Más adelante, cuando la revisión avanza, deberían aparecer también:
 - `paper/audit/model-provenance.csv`
 - `paper/audit/claim-evidence-ledger.csv`
 - `paper/audit/evidence-coverage.json`
+- `paper/audit/gold/gold-manifest.json`
+- `paper/audit/gold/DATASET-CARD.md`
 
 El cierre solo se considera completo cuando `paper/audit/publication-gate.md`
 marca `Estado global: **PASS**`.

@@ -61,9 +61,13 @@ jobs:
 
       - name: Build runtime image
         run: docker compose -f docker-compose.research.yml build hermes
+        env:
+          HERMES_DOCLING_API_KEY: ci-only-docling-key-not-for-runtime-0001
 
       - name: Prove plugin-only Hermes integration
         run: bash scripts/plugin-only-test.sh --skip-build
+        env:
+          HERMES_DOCLING_API_KEY: ci-only-docling-key-not-for-runtime-0001
 
       - name: Prepare release artifact directories
         run: mkdir -p dist/security

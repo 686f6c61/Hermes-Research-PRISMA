@@ -125,7 +125,7 @@ auxiliary:
     timeout: 30
 display:
   compact: false
-  personality: kawaii
+  personality: ''
   resume_display: full
   busy_input_mode: interrupt
   bell_on_complete: false
@@ -141,7 +141,7 @@ display:
   tool_progress: new
   background_process_notifications: result
 privacy:
-  redact_pii: false
+  redact_pii: true
 tts:
   provider: edge
   edge:
@@ -214,10 +214,7 @@ approvals:
   mode: manual
   timeout: 60
   destructive_slash_confirm: false
-command_allowlist:
-- shell command via -c/-lc flag
-- script execution via heredoc
-- script execution via -e/-c flag
+command_allowlist: []
 quick_commands: {}
 personalities: {}
 security:
@@ -242,8 +239,6 @@ platform_toolsets:
   - hermes-cli
   telegram:
   - web
-  - terminal
-  - file
   - skills
   - todo
   - cronjob

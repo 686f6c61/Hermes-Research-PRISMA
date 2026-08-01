@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from hermes_research import bindings, hooks, runtime
+from hermes_research import bindings, commands, hooks, runtime
 
 
 def materialize_review(root: Path, name: str = "systematic-review-example") -> Path:
@@ -113,6 +113,33 @@ def test_public_alias_with_bot_suffix_keeps_its_argument(monkeypatch) -> None:
     }
 
 
+def test_public_research_binding_is_always_imposed_by_gateway(monkeypatch) -> None:
+    monkeypatch.setenv("HERMES_TELEGRAM_PUBLIC_MENU_ONLY", "1")
+    event = SimpleNamespace(
+        text="/research status --binding telegram:-100999:777 systematic-review-example",
+        source=SimpleNamespace(
+            platform=SimpleNamespace(value="telegram"),
+            chat_id="-100123",
+            user_id="456",
+        ),
+    )
+
+    assert hooks.rewrite_public_research_flow(event) == {
+        "action": "rewrite",
+        "text": "/research status --binding telegram:-100123:456 systematic-review-example",
+    }
+
+
+def test_binding_is_removed_when_gateway_has_no_authoritative_identity() -> None:
+    assert (
+        hooks._inject_binding(
+            "/research status --binding telegram:attacker:1 review",
+            "",
+        )
+        == "/research status review"
+    )
+
+
 def test_smoke_autonomous_run_stops_after_bounded_bootstrap(
     tmp_path: Path,
     monkeypatch,
@@ -194,3 +221,120 @@ def test_job_runner_resumes_existing_corpus_without_repeating_search(tmp_path: P
     ledger = json.loads((review_dir / "notes/job-ledger.json").read_text(encoding="utf-8"))
     assert ledger["status"] == "completed"
     assert ledger["job_id"] == "job-test"
+
+
+def test_job_runner_treats_screening_disagreement_as_recoverable_wait(
+    tmp_path: Path,
+) -> None:
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    complete = scripts_dir / "complete_review.py"
+    complete.write_text(
+        "import json, pathlib, sys\n"
+        "review = pathlib.Path(sys.argv[-1])\n"
+        "target = review / 'screening' / 'pending-disagreements.json'\n"
+        "target.parent.mkdir(parents=True, exist_ok=True)\n"
+        "target.write_text(json.dumps({'status': 'waiting_for_researcher', "
+        "'cases': [{'case_id': 'case-1', 'assigned_doi': '10.1000/example'}]}))\n"
+        "raise SystemExit(3)\n",
+        encoding="utf-8",
+    )
+    review_dir = materialize_review(tmp_path)
+    (review_dir / "searches").mkdir()
+    (review_dir / "records").mkdir()
+    (review_dir / "searches/search-log.csv").write_text(
+        "source,query\ntest,agents\n",
+        encoding="utf-8",
+    )
+    (review_dir / "records/master-records.csv").write_text(
+        "record_id,assigned_doi\nRID-TEST,10.1000/example\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(runtime.plugin_dir() / "job_runner.py"),
+            "--review-dir",
+            str(review_dir),
+            "--scripts-dir",
+            str(scripts_dir),
+            "--job-id",
+            "job-waiting",
+        ],
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    ledger = json.loads(
+        (review_dir / "notes/job-ledger.json").read_text(encoding="utf-8")
+    )
+    assert ledger["status"] == "waiting_for_researcher"
+    assert ledger["phase"] == "screening_disagreement"
+    assert ledger["pending_disagreements"] == 1
+    assert "failed_phase" not in ledger
+
+
+def test_telegram_disagreement_resolution_resumes_only_after_last_case(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    review_dir = materialize_review(tmp_path)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "456")
+    monkeypatch.setenv("HERMES_ADJUDICATION_ALLOWED_USERS", "456")
+    monkeypatch.setattr(
+        commands,
+        "_resolve_review",
+        lambda _binding, _token: review_dir,
+    )
+    captured: list[list[str]] = []
+
+    def fake_run(command, cwd=None, *, timeout=None):
+        del cwd
+        assert timeout == 120
+        captured.append(command)
+        return json.dumps({"unresolved": 0})
+
+    monkeypatch.setattr(runtime, "run_command_capture", fake_run)
+    monkeypatch.setattr(
+        commands,
+        "_resume_review",
+        lambda _binding, _token: "RESUMED",
+    )
+
+    result = commands._resolve_screening_disagreement(
+        "telegram:123:456",
+        "10.1000/example include Cumple la población y el resultado definidos",
+    )
+
+    assert "--doi" in captured[0]
+    assert "10.1000/example" in captured[0]
+    assert "se reanuda automáticamente" in result
+    assert "RESUMED" in result
+
+
+def test_telegram_disagreement_resolution_keeps_waiting_when_cases_remain(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    review_dir = materialize_review(tmp_path)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "456")
+    monkeypatch.setenv("HERMES_ADJUDICATION_ALLOWED_USERS", "456")
+    monkeypatch.setattr(
+        commands,
+        "_resolve_review",
+        lambda _binding, _token: review_dir,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "run_command_capture",
+        lambda *_args, **_kwargs: json.dumps({"unresolved": 2}),
+    )
+
+    result = commands._resolve_screening_disagreement(
+        "telegram:123:456",
+        "10.1000/example exclude No responde a la pregunta de investigación",
+    )
+
+    assert "Quedan 2 discrepancia(s)" in result
+    assert "seguirá pausado" in result

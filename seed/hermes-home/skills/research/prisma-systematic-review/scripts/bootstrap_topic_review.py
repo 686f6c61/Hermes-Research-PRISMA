@@ -30,6 +30,15 @@ from cloud_inference import (  # noqa: E402
     post_openai_compatible_chat,
     resolve_inference_runtime,
 )
+from institutional_sources import (  # noqa: E402
+    SOURCE_CONFIG as INSTITUTIONAL_SOURCE_CONFIG,
+)
+from institutional_sources import (  # noqa: E402
+    active_source_plan,
+    raw_export_payload,
+    sanitized_environment,
+    search_sources,
+)
 from review_mode_router import (  # noqa: E402
     infer_review_mode,
     review_mode_summary,
@@ -55,6 +64,10 @@ SOURCE_PRIORITY = {
     "semanticscholar": 3,
     "pubmed": 3,
     "arxiv": 2,
+    "scopus": 8,
+    "wos": 8,
+    "embase": 8,
+    "ieee": 8,
 }
 HERMES_HOME = pathlib.Path(__file__).resolve().parents[4]
 SOURCE_QUERY_LIMITS = {
@@ -728,9 +741,12 @@ def ordered_content_terms(text: str, limit: int = 4) -> list[str]:
 def generic_query_plan(topic: str, question: str = "", inclusion: str = "") -> dict[str, list[str]]:
     base = compact_query_text(topic.strip() or question.strip() or "systematic review topic")
     terms = generic_search_terms(topic, question, inclusion, limit=8)
-    core_terms = unique_queries([*ordered_content_terms(topic, limit=4), *terms], limit=8) or [base]
-    primary = " ".join(core_terms[:3])
-    secondary = " ".join(core_terms[1:4]) if len(core_terms) >= 4 else ""
+    topic_terms = ordered_content_terms(topic, limit=6)
+    core_terms = unique_queries([*topic_terms, *terms], limit=8) or [base]
+    anchor_terms = topic_terms or core_terms[:6]
+    primary = " ".join(anchor_terms)
+    relation_terms = [term for term in core_terms if term not in anchor_terms][:2]
+    secondary = " ".join([primary, *relation_terms]).strip()
     quoted_base = f'"{base}"' if base and len(base) <= 96 else base
     open_queries = unique_queries(
         [
@@ -739,8 +755,7 @@ def generic_query_plan(topic: str, question: str = "", inclusion: str = "") -> d
             secondary,
             f"{primary} review",
             f"{primary} empirical",
-            f"{primary} study",
-            *(f'"{term}"' for term in core_terms[:4] if " " in term),
+            f"{primary} method",
         ]
     )
     semantic_queries = unique_queries(
@@ -751,17 +766,20 @@ def generic_query_plan(topic: str, question: str = "", inclusion: str = "") -> d
             f"{primary} review",
             f"{primary} empirical",
             f"{primary} method",
-            *core_terms[:4],
         ]
     )
-    arxiv_terms = [normalize_query_token(term).replace(" ", " AND all:") for term in core_terms[:4]]
+    arxiv_terms = [
+        normalize_query_token(term).replace(" ", " AND all:")
+        for term in anchor_terms[:6]
+    ]
     arxiv_queries = unique_queries(
         [
             f'all:"{base}"' if base and len(base) <= 96 else "",
-            f"all:{arxiv_terms[0]}" if arxiv_terms else "",
-            f"all:{arxiv_terms[0]} AND all:{arxiv_terms[1]}" if len(arxiv_terms) >= 2 else "",
-            f"all:{arxiv_terms[0]} AND all:{arxiv_terms[2]}" if len(arxiv_terms) >= 3 else "",
-            f"all:{arxiv_terms[0]} AND all:review" if arxiv_terms else "",
+            " AND ".join(f"all:{term}" for term in arxiv_terms[:4]),
+            " AND ".join(f"all:{term}" for term in arxiv_terms[:6]),
+            f"{' AND '.join(f'all:{term}' for term in arxiv_terms[:4])} AND all:empirical"
+            if arxiv_terms
+            else "",
         ]
     )
     return {
@@ -1581,10 +1599,17 @@ def arxiv_query_from_phrase(query: str) -> str:
     return " AND ".join(f'all:"{part}"' if " " in part else f"all:{part}" for part in parts[:4])
 
 
-def source_query_bundle(queries: list[str]) -> dict[str, list[str]]:
-    clean = unique_queries(queries, limit=10)
+def source_query_bundle(
+    queries: list[str],
+    *,
+    limit: int = 10,
+) -> dict[str, list[str]]:
+    clean = unique_queries(queries, limit=limit)
     semantic = [query.replace('"', "") for query in clean]
-    arxiv = unique_queries([arxiv_query_from_phrase(query) for query in clean], limit=8)
+    arxiv = unique_queries(
+        [arxiv_query_from_phrase(query) for query in clean],
+        limit=min(limit, 8),
+    )
     return {
         "openalex": clean,
         "crossref": clean,
@@ -1604,8 +1629,9 @@ def mode_stage_templates(
 ) -> list[dict[str, object]]:
     mode = str(mode_decision.get("primary_mode") or mode_decision.get("mode") or "")
     quoted_base = f'"{base}"' if base and len(base) <= 96 else base
-    anchor_a = axis_a[0] if axis_a else base
-    anchor_b = axis_b[0] if axis_b else base
+    balanced_anchor = " ".join(
+        unique_queries([*axis_a[:2], *axis_b[:2]], limit=4)
+    ).strip() or base
     mode_map: dict[str, list[tuple[str, str, list[str], list[str]]]] = {
         "management": [
             (
@@ -1704,8 +1730,7 @@ def mode_stage_templates(
             queries.extend(
                 [
                     f"{quoted_base} {qualifier}".strip(),
-                    f'"{anchor_a}" {qualifier}'.strip() if anchor_a and len(anchor_a) <= 72 else f"{anchor_a} {qualifier}".strip(),
-                    f'"{anchor_a}" "{anchor_b}" {qualifier}'.strip() if anchor_a and anchor_b and len(anchor_a) <= 48 and len(anchor_b) <= 48 else "",
+                    f"{balanced_anchor} {qualifier}".strip(),
                 ]
             )
         stages.append(
@@ -1714,7 +1739,9 @@ def mode_stage_templates(
                 "name": name,
                 "purpose": purpose,
                 "axis_covered": unique_queries([*axes, *mode_axes[:3]], limit=8),
-                "queries_by_source": source_query_bundle(queries),
+                # Six queries leave room for every methodological stage and for
+                # high-value topic packs inside the per-source execution cap.
+                "queries_by_source": source_query_bundle(queries, limit=6),
             }
         )
     return stages
@@ -1736,7 +1763,13 @@ def generic_staged_decomposition(
     mode_axes = [str(item) for item in mode_decision.get("screening_axes", [])[:6]] if isinstance(mode_decision.get("screening_axes"), list) else []
     framework = str(mode_decision.get("default_framework") or "")
     mode_label = str(mode_decision.get("mode_label") or "modo genérico")
-    stage_one = unique_queries([base, " ".join(axis_a), f"{' '.join(axis_a)} empirical"], limit=8)
+    balanced_anchor = " ".join(
+        unique_queries([*axis_a[:2], *axis_b[:2]], limit=4)
+    ).strip() or base
+    stage_one = unique_queries(
+        [base, balanced_anchor, f"{balanced_anchor} empirical"],
+        limit=8,
+    )
     stage_two = unique_queries([f"{' '.join(axis_a[:2])} {' '.join(axis_b[:2])}", f"{base} method", f"{base} evidence"], limit=8)
     mode_stages = mode_stage_templates(mode_decision, base, axis_a, axis_b, mode_axes)
     coverage_stage_id = f"S{len(mode_stages) + 3}"
@@ -1911,16 +1944,18 @@ def apply_topic_packs(
         if not any(queries.values()):
             continue
         pack_id = str(pack.get("id") or f"topic-pack-{len(matched_ids) + 1}")
-        stages.append(
-            {
-                "stage_id": f"TP{len(matched_ids) + 1}",
-                "name": str(stage.get("name") or pack_id),
-                "purpose": str(stage.get("purpose") or "Declarative topic coverage."),
-                "axis_covered": list(stage.get("axis_covered") or []),
-                "queries_by_source": queries,
-                "topic_pack": pack_id,
-            }
-        )
+        topic_stage = {
+            "stage_id": f"TP{len(matched_ids) + 1}",
+            "name": str(stage.get("name") or pack_id),
+            "purpose": str(stage.get("purpose") or "Declarative topic coverage."),
+            "axis_covered": list(stage.get("axis_covered") or []),
+            "queries_by_source": queries,
+            "topic_pack": pack_id,
+        }
+        # Topic packs encode the most specific domain knowledge. Insert them
+        # after the two core stages so generic expansions cannot consume the
+        # complete per-source query budget before these queries are reached.
+        stages.insert(min(2 + len(matched_ids), len(stages)), topic_stage)
         matched_ids.append(pack_id)
     enriched = dict(decomposition)
     enriched["search_stages"] = stages
@@ -3112,6 +3147,54 @@ def rows_from_pubmed(items: list[dict]) -> list[dict[str, str]]:
     return rows
 
 
+def rows_from_institutional_sources(
+    items: list[dict[str, str]],
+    from_date: str,
+    to_date: str,
+) -> list[dict[str, str]]:
+    """Map licensed-source records into the same DOI-first master schema."""
+
+    rows: list[dict[str, str]] = []
+    for item in items:
+        publication_date = str(item.get("publication_date") or "")
+        year = str(item.get("year") or "")
+        if not record_in_window(
+            publication_date,
+            year,
+            from_date,
+            to_date,
+        ):
+            continue
+        title = str(item.get("title") or "")
+        abstract = str(item.get("abstract") or "")
+        keywords = str(item.get("keywords") or "")
+        doi = normalize_doi(str(item.get("doi") or ""))
+        rows.append(
+            {
+                "record_id": "",
+                "source": str(item.get("source") or ""),
+                "year": year,
+                "publication_date": publication_date,
+                "authors": str(item.get("authors") or ""),
+                "title_original": title,
+                "title_en": title,
+                "title_es": "",
+                "abstract_original": abstract,
+                "abstract_en": abstract,
+                "abstract_es": "",
+                "keywords_author": keywords,
+                "keywords_indexed": keywords,
+                "keywords_normalized": normalize_keywords(keywords),
+                "raw_doi": doi,
+                "assigned_doi": doi,
+                "needs_doi_resolution": "yes" if not doi else "no",
+                "status": "",
+                "notes": str(item.get("url") or ""),
+            }
+        )
+    return rows
+
+
 def ensure_protocol(
     review_dir: pathlib.Path,
     year_start: int,
@@ -3230,6 +3313,7 @@ def ensure_protocol(
                 "- OpenAIRE",
                 "- Lens si existe API key",
                 "- Europe PMC/PubMed si el modo o la pregunta lo justifican",
+                "- Scopus, Web of Science, Embase e IEEE Xplore cuando existen credenciales institucionales activas",
                 "",
                 "## Racional",
                 f"Búsqueda orientada al tema `{topic}` en la ventana exacta {from_date} a {to_date}, respetando los criterios de inclusión y exclusión definidos en la intake.",
@@ -3267,7 +3351,7 @@ def ensure_protocol(
                 "## Ecuaciones orientativas",
                 *source_sections,
                 "## Elementos PRISMA-S documentados",
-                "- Bases y plataformas consultadas: OpenAlex, Crossref, Semantic Scholar y arXiv.",
+                "- Bases y plataformas consultadas: se enumeran por ejecución en `searches/search-log.csv`; las fuentes institucionales solo constan como consultadas cuando existe credencial activa y la petición se ejecuta.",
                 "- Fecha de ejecución: registrada por consulta en `searches/search-log.csv`.",
                 "- Ventana exacta: conservada en `from_date` y `to_date` para cada consulta.",
                 "- Cadenas ejecutadas: conservadas literalmente por fuente en este protocolo y en `searches/search-log.csv`.",
@@ -3386,6 +3470,40 @@ def main() -> int:
     europepmc_items, europepmc_log = fetch_europepmc(from_date, to_date, plan["europepmc"], topic)
     pubmed_items, pubmed_log, pubmed_xml = fetch_pubmed(from_date, to_date, plan["pubmed"], topic)
     lens_items, lens_log = fetch_lens(from_date, to_date, plan["lens"], topic)
+    institutional_raw: dict[str, list[dict]] = {}
+    institutional_log: list[dict[str, str]] = []
+    institutional_records: list[dict[str, str]] = []
+    if not SMOKE_TEST_MODE:
+        institutional_env = sanitized_environment(
+            load_env_file(HERMES_HOME / ".env")
+        )
+        institutional_queries = unique_queries(
+            [
+                compact_query_text(query, 180)
+                for query in (
+                    plan.get("crossref", [])[:6]
+                    + plan.get("openalex", [])[:4]
+                )
+            ],
+            limit=8,
+        )
+        institutional_plan = active_source_plan(
+            institutional_queries,
+            institutional_env,
+            limit=8,
+        )
+        (
+            institutional_raw,
+            institutional_log,
+            institutional_records,
+        ) = search_sources(
+            institutional_plan,
+            from_date,
+            to_date,
+            topic,
+            institutional_env,
+            fetch_json,
+        )
 
     write_json(raw_dir / "openalex-2026.json", {"results": openalex_items})
     write_json(raw_dir / "crossref-2026.json", {"message": {"items": crossref_items}})
@@ -3395,12 +3513,30 @@ def main() -> int:
     write_json(raw_dir / "europepmc-2026.json", {"data": europepmc_items})
     write_json(raw_dir / "pubmed-2026.json", {"data": pubmed_items})
     write_json(raw_dir / "lens-2026.json", {"data": lens_items})
+    for source, config in INSTITUTIONAL_SOURCE_CONFIG.items():
+        if source not in institutional_raw:
+            continue
+        export_name = pathlib.Path(str(config["export"])).name
+        write_json(
+            raw_dir / export_name,
+            raw_export_payload(source, institutional_raw[source]),
+        )
     if arxiv_xml:
         write_text(raw_dir / "arxiv-2026.xml", arxiv_xml)
     if pubmed_xml:
         write_text(raw_dir / "pubmed-2026.xml", pubmed_xml)
 
-    search_rows = openalex_log + crossref_log + semanticscholar_log + arxiv_log + openaire_log + europepmc_log + pubmed_log + lens_log
+    search_rows = (
+        openalex_log
+        + crossref_log
+        + semanticscholar_log
+        + arxiv_log
+        + openaire_log
+        + europepmc_log
+        + pubmed_log
+        + lens_log
+        + institutional_log
+    )
     write_csv(review_dir / "searches" / "search-log.csv", SEARCH_FIELDS, search_rows)
 
     raw_rows = (
@@ -3412,24 +3548,37 @@ def main() -> int:
         + rows_from_europepmc(europepmc_items)
         + rows_from_pubmed(pubmed_items)
         + rows_from_lens(lens_items)
+        + rows_from_institutional_sources(
+            institutional_records,
+            from_date,
+            to_date,
+        )
     )
     merged_rows = merge_rows(raw_rows)
     write_csv(review_dir / "records" / "master-records.csv", MASTER_FIELDS, merged_rows)
     write_csv(review_dir / "searches" / "raw" / "combined-raw-export.csv", MASTER_FIELDS, merged_rows)
 
     doi_script = pathlib.Path(__file__).resolve().parent / "doi_audit.py"
+    doi_inputs = [
+        raw_dir / "openalex-2026.json",
+        raw_dir / "crossref-2026.json",
+        raw_dir / "semanticscholar-2026.json",
+        raw_dir / "arxiv-records.json",
+        raw_dir / "openaire-2026.json",
+        raw_dir / "europepmc-2026.json",
+        raw_dir / "pubmed-2026.json",
+        raw_dir / "lens-2026.json",
+        *[
+            raw_dir / pathlib.Path(str(config["export"])).name
+            for source, config in INSTITUTIONAL_SOURCE_CONFIG.items()
+            if source in institutional_raw
+        ],
+    ]
     subprocess.run(
         [
             "python3",
             str(doi_script),
-            str(raw_dir / "openalex-2026.json"),
-            str(raw_dir / "crossref-2026.json"),
-            str(raw_dir / "semanticscholar-2026.json"),
-            str(raw_dir / "arxiv-records.json"),
-            str(raw_dir / "openaire-2026.json"),
-            str(raw_dir / "europepmc-2026.json"),
-            str(raw_dir / "pubmed-2026.json"),
-            str(raw_dir / "lens-2026.json"),
+            *[str(path) for path in doi_inputs],
             "--index",
             str(review_dir / "records" / "doi-index.csv"),
             "--duplicates",

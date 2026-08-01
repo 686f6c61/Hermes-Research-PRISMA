@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import hashlib
 import html
 import json
 import math
@@ -37,6 +38,7 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from artifact_contracts import write_json_atomic  # noqa: E402
 from cloud_inference import (  # noqa: E402
     configured_research_models,
     resolve_inference_runtime,
@@ -44,11 +46,26 @@ from cloud_inference import (  # noqa: E402
 from cloud_inference import (  # noqa: E402
     post_openai_compatible_chat as cloud_post_openai_compatible_chat,
 )
+from fulltext_security import UnsafeDownloadError, download_pdf  # noqa: E402
 from review_mode_router import (  # noqa: E402
     infer_review_mode,
     read_review_mode_decision,
     selection_weights,
     write_review_mode_artifacts,
+)
+from screening_disagreement import (  # noqa: E402
+    build_case,
+    manifest_sha,
+    resolution_for_case,
+    write_pending_cases,
+)
+from screening_disagreement import (  # noqa: E402
+    pending_cases as preserved_disagreement_cases,
+)
+from screening_reliability import (  # noqa: E402
+    binary_decision,
+    resolve_title_abstract,
+    write_dual_review_artifacts,
 )
 
 REVIEW_MODE_PLAYBOOK_KEYS = [
@@ -288,6 +305,16 @@ MODELS = list(RUNTIME_CHAIN[0]["models"])
 PRIMARY_MODELS = MODELS[:1]
 FALLBACK_MODELS = MODELS[1:]
 TEXT_REASONING_MODELS = list(MODELS)
+REVIEWER_MODELS = [
+    model
+    for model in [configured_value("HERMES_MODEL_REVIEW")]
+    if model and model in MODELS
+] or FALLBACK_MODELS[:1] or PRIMARY_MODELS
+ADJUDICATOR_MODELS = [
+    model
+    for model in MODELS
+    if model not in {*PRIMARY_MODELS, *REVIEWER_MODELS}
+][:1] or PRIMARY_MODELS
 
 
 def chunks(items: list[dict[str, str]], size: int) -> list[list[dict[str, str]]]:
@@ -4606,6 +4633,243 @@ def classify_title_abstract(
     return results
 
 
+def bounded_score(value: object, default: int) -> int:
+    """Convert an LLM score to the expected 0-100 range."""
+
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def classify_title_abstract_reviewer_b(
+    candidates: list[dict[str, str]],
+    context: dict[str, str],
+    model_log: list[str],
+) -> dict[str, dict[str, object]]:
+    """Run a blind second judgment without exposing reviewer A decisions."""
+
+    unique_candidates, auto_results = collapse_duplicate_candidates(candidates)
+    deterministic = os.environ.get(
+        "HERMES_DETERMINISTIC_EXTRACTION", ""
+    ).strip().lower() in {"1", "true", "yes", "si", "sí"}
+    fallback = classify_title_abstract(unique_candidates, context, model_log=None)
+    results = {
+        record_id: {**result, "_engine": "deterministic_deduplication"}
+        for record_id, result in auto_results.items()
+    }
+    if deterministic:
+        results.update(
+            {
+                record_id: {**result, "_engine": "independent_contract_rules"}
+                for record_id, result in fallback.items()
+            }
+        )
+        return results
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "record_id": {"type": "string"},
+                        "decision": {
+                            "type": "string",
+                            "enum": ["include", "maybe", "exclude"],
+                        },
+                        "reason": {"type": "string"},
+                        "reason_detail": {"type": "string"},
+                        "work_type": {"type": "string"},
+                        "empirical_type": {"type": "string"},
+                        "relevance_score": {"type": "integer"},
+                        "confidence": {"type": "integer"},
+                    },
+                    "required": [
+                        "record_id",
+                        "decision",
+                        "reason",
+                        "reason_detail",
+                        "work_type",
+                        "empirical_type",
+                        "relevance_score",
+                        "confidence",
+                    ],
+                },
+            }
+        },
+        "required": ["items"],
+    }
+    for batch in chunks(unique_candidates, 40):
+        records = [
+            {
+                "record_id": row.get("record_id", ""),
+                "title": row.get("title_original", ""),
+                "abstract": (row.get("abstract_original", "") or "")[:1200],
+                "keywords": row.get("keywords_author", ""),
+                "source": row.get("source", ""),
+                "year": row.get("year", ""),
+            }
+            for row in batch
+        ]
+        prompt = textwrap.dedent(
+            f"""
+            Actúas como segundo revisor automático, independiente y ciego, en
+            el cribado por título y resumen de una revisión sistemática.
+            No conoces ninguna decisión previa y debes aplicar únicamente el
+            contrato metodológico.
+
+            Tema: {context.get('topic', '')}
+            Pregunta de investigación: {context.get('research_question', '')}
+            Criterios de inclusión: {context.get('inclusion', '')}
+            Criterios de exclusión: {context.get('exclusion', '')}
+
+            Decide `include` cuando el ajuste es claro, `maybe` cuando el texto
+            completo es necesario para resolver una duda sustantiva y `exclude`
+            solo cuando existe una razón explícita del protocolo. Justifica cada
+            decisión con evidencia del título, resumen o palabras clave. No
+            completes datos ausentes ni infieras resultados.
+
+            Registros:
+            {json.dumps(records, ensure_ascii=False)}
+            """
+        ).strip()
+        parsed_items: list[dict[str, object]] = []
+        engine = "independent_contract_rules"
+        try:
+            log_position = len(model_log)
+            parsed = parse_json_response(
+                call_llm(
+                    prompt,
+                    schema,
+                    model_log,
+                    preferred_models=REVIEWER_MODELS,
+                    request_timeout_seconds=160,
+                    retries=1,
+                )
+            )
+            parsed_items = parsed.get("items", []) if isinstance(parsed, dict) else []
+            if len(model_log) > log_position:
+                engine = model_log[-1]
+        except Exception:
+            parsed_items = []
+        parsed_by_id = {
+            str(item.get("record_id", "")): item
+            for item in parsed_items
+            if isinstance(item, dict) and item.get("record_id")
+        }
+        for row in batch:
+            record_id = row.get("record_id", "")
+            item = parsed_by_id.get(record_id)
+            decision = canonicalize_screening_decision(
+                str((item or {}).get("decision", "")),
+                "title_abstract",
+            )
+            if not item or decision not in {"include", "maybe", "exclude"}:
+                results[record_id] = {
+                    **fallback[record_id],
+                    "_engine": "independent_contract_rules",
+                }
+                continue
+            results[record_id] = {
+                "record_id": record_id,
+                "decision": decision,
+                "reason": str(item.get("reason", "") or "contract_assessment"),
+                "reason_detail": str(item.get("reason_detail", "") or ""),
+                "exclusion_score": 0 if decision != "exclude" else 75,
+                "work_type": str(item.get("work_type", "") or "other"),
+                "empirical_type": str(item.get("empirical_type", "") or "other"),
+                "relevance_score": bounded_score(
+                    item.get("relevance_score"),
+                    70 if decision != "exclude" else 20,
+                ),
+                "methodological_quality_score": 0,
+                "confidence": bounded_score(item.get("confidence"), 70),
+                "_engine": engine,
+            }
+    return results
+
+
+def reconcile_title_abstract_reviews(
+    review_dir: pathlib.Path,
+    candidates: list[dict[str, str]],
+    primary: dict[str, dict[str, object]],
+    secondary: dict[str, dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    """Keep disagreements eligible and preserve both judgments on disk."""
+
+    resolved: dict[str, dict[str, object]] = {}
+    audit_rows: list[dict[str, object]] = []
+    for row in candidates:
+        record_id = row.get("record_id", "")
+        left = primary.get(record_id, {})
+        right = secondary.get(record_id, {})
+        left_decision = canonicalize_screening_decision(
+            str(left.get("decision", "")),
+            "title_abstract",
+        )
+        right_decision = canonicalize_screening_decision(
+            str(right.get("decision", "")),
+            "title_abstract",
+        )
+        final_decision = resolve_title_abstract(left_decision, right_decision)
+        result = dict(left)
+        if final_decision != left_decision:
+            result.update(
+                {
+                    "decision": final_decision,
+                    "reason": "automatic_judgment_disagreement",
+                    "reason_detail": (
+                        "Los dos juicios automáticos independientes discrepan; "
+                        "el registro permanece elegible para evaluación en texto completo."
+                    ),
+                    "confidence": min(
+                        bounded_score(left.get("confidence"), 70),
+                        bounded_score(right.get("confidence"), 70),
+                    ),
+                }
+            )
+        resolved[record_id] = result
+        audit_rows.append(
+            {
+                "stage": "title_abstract",
+                "record_id": record_id,
+                "assigned_doi": row.get("assigned_doi", ""),
+                "reviewer_a_decision": left_decision,
+                "reviewer_b_decision": right_decision,
+                "agreement": (
+                    "yes"
+                    if binary_decision(left_decision, "title_abstract")
+                    == binary_decision(right_decision, "title_abstract")
+                    else "no"
+                ),
+                "adjudicator_decision": "",
+                "final_decision": final_decision,
+                "reviewer_a_reason": left.get("reason", ""),
+                "reviewer_b_reason": right.get("reason", ""),
+                "adjudicator_reason": "",
+                "reviewer_a_engine": left.get("_engine", "contract_rules"),
+                "reviewer_b_engine": right.get("_engine", "review_model"),
+                "adjudicator_engine": "full_text_stage",
+            }
+        )
+    limitations = []
+    if set(REVIEWER_MODELS) & set(PRIMARY_MODELS):
+        limitations.append(
+            "Only one configured model was available; reviewer B is an independent "
+            "call but not a different model family."
+        )
+    write_dual_review_artifacts(
+        review_dir,
+        "title_abstract",
+        audit_rows,
+        limitations=limitations,
+    )
+    return resolved
+
+
 def fallback_full_text_decision(row: dict[str, str], context: dict[str, str]) -> dict[str, object]:
     text = f"{row.get('title_original', '')} {row.get('abstract_original', '')} {(row.get('full_text_text', '') or '')[:4000]}".lower()
     work_type, empirical_type = infer_work_type(row.get("title_original", ""), row.get("abstract_original", ""))
@@ -5058,8 +5322,505 @@ def classify_full_text(
     return results
 
 
+def classify_full_text_reviewer_b(
+    candidates: list[dict[str, str]],
+    context: dict[str, str],
+    model_log: list[str],
+) -> dict[str, dict[str, object]]:
+    """Run a blind second full-text judgment over the same evidence."""
+
+    results: dict[str, dict[str, object]] = {}
+    schema = {
+        "type": "object",
+        "properties": {
+            "record_id": {"type": "string"},
+            "decision": {"type": "string", "enum": ["include", "exclude"]},
+            "reason": {"type": "string"},
+            "reason_detail": {"type": "string"},
+            "work_type": {"type": "string"},
+            "empirical_type": {"type": "string"},
+            "relevance_score": {"type": "integer"},
+            "methodological_quality_score": {"type": "integer"},
+            "confidence": {"type": "integer"},
+        },
+        "required": [
+            "record_id",
+            "decision",
+            "reason",
+            "reason_detail",
+            "work_type",
+            "empirical_type",
+            "relevance_score",
+            "methodological_quality_score",
+            "confidence",
+        ],
+    }
+    deterministic = os.environ.get(
+        "HERMES_DETERMINISTIC_EXTRACTION", ""
+    ).strip().lower() in {"1", "true", "yes", "si", "sí"}
+    for row in candidates:
+        record_id = row["record_id"]
+        fallback = fallback_full_text_decision(row, context)
+        if (
+            deterministic
+            or len((row.get("full_text_text") or "").strip()) < FULLTEXT_MIN_CHARS
+        ):
+            results[record_id] = {
+                **fallback,
+                "_engine": "independent_full_text_rules",
+            }
+            continue
+        digest = build_full_text_digest(
+            row.get("full_text_text", "") or "",
+            focus_terms=review_digest_focus_terms(context),
+        )
+        rules_text = "\n".join(
+            f"- {rule}" for rule in review_full_text_rules(context)
+        )
+        prompt = textwrap.dedent(
+            f"""
+            Actúas como revisor B, independiente y ciego, para la evaluación a
+            texto completo de una revisión sistemática. No conoces la decisión
+            del revisor A. Decide únicamente desde el protocolo y la evidencia
+            textual recuperada.
+
+            Tema: {context.get('topic', '')}
+            Pregunta de investigación: {context.get('research_question', '')}
+            Criterios de inclusión: {context.get('inclusion', '')}
+            Criterios de exclusión: {context.get('exclusion', '')}
+
+            Reglas operativas:
+            {rules_text}
+            - `include` exige ajuste explícito y texto completo suficiente.
+            - `exclude` exige una razón reproducible del protocolo.
+            - No completes métodos, muestras, resultados ni comparadores ausentes.
+            - Devuelve una sola decisión con justificación sustantiva.
+
+            Estudio:
+            {json.dumps({
+                "record_id": record_id,
+                "doi": row.get("assigned_doi", ""),
+                "title": row.get("title_original", ""),
+                "abstract": row.get("abstract_original", ""),
+                "full_text_digest": digest,
+            }, ensure_ascii=False)}
+            """
+        ).strip()
+        engine = "independent_full_text_rules"
+        try:
+            log_position = len(model_log)
+            parsed = parse_json_response(
+                call_llm(
+                    prompt,
+                    schema,
+                    model_log,
+                    preferred_models=REVIEWER_MODELS,
+                    request_timeout_seconds=180,
+                    retries=1,
+                )
+            )
+            decision = canonicalize_screening_decision(
+                str(parsed.get("decision", "")),
+                "full_text",
+            )
+            if decision not in {"include_ft", "exclude"}:
+                raise ValueError("Reviewer B returned an invalid decision")
+            if len(model_log) > log_position:
+                engine = model_log[-1]
+            results[record_id] = {
+                "record_id": record_id,
+                "decision": "include" if decision == "include_ft" else "exclude",
+                "reason": str(parsed.get("reason", "") or "contract_assessment"),
+                "reason_detail": str(parsed.get("reason_detail", "") or ""),
+                "exclusion_score": 0 if decision == "include_ft" else 75,
+                "work_type": str(parsed.get("work_type", "") or "other"),
+                "empirical_type": str(parsed.get("empirical_type", "") or "other"),
+                "relevance_score": bounded_score(
+                    parsed.get("relevance_score"),
+                    78 if decision == "include_ft" else 20,
+                ),
+                "methodological_quality_score": bounded_score(
+                    parsed.get("methodological_quality_score"),
+                    68 if decision == "include_ft" else 30,
+                ),
+                "confidence": bounded_score(parsed.get("confidence"), 70),
+                "_engine": engine,
+            }
+        except Exception:
+            results[record_id] = {
+                **fallback,
+                "_engine": "independent_full_text_rules",
+            }
+    return results
+
+
+def adjudicate_full_text_disagreement(
+    row: dict[str, str],
+    context: dict[str, str],
+    reviewer_a: dict[str, object],
+    reviewer_b: dict[str, object],
+    model_log: list[str],
+) -> dict[str, object]:
+    """Resolve one disagreement from full text and both explicit rationales."""
+
+    fallback = fallback_full_text_decision(row, context)
+    if os.environ.get("HERMES_DETERMINISTIC_EXTRACTION", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "si",
+        "sí",
+    }:
+        return {**fallback, "_engine": "deterministic_contract_adjudication"}
+    schema = {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": ["include", "exclude"]},
+            "reason": {"type": "string"},
+            "reason_detail": {"type": "string"},
+            "confidence": {"type": "integer"},
+        },
+        "required": ["decision", "reason", "reason_detail", "confidence"],
+    }
+    digest = build_full_text_digest(
+        row.get("full_text_text", "") or "",
+        focus_terms=review_digest_focus_terms(context),
+    )
+    prompt = textwrap.dedent(
+        f"""
+        Actúas como tercer juez automático para resolver un desacuerdo de
+        elegibilidad a texto completo. Reevalúa el protocolo y la evidencia;
+        las dos razones previas son argumentos que debes comprobar, no votos.
+
+        Tema: {context.get('topic', '')}
+        Pregunta de investigación: {context.get('research_question', '')}
+        Criterios de inclusión: {context.get('inclusion', '')}
+        Criterios de exclusión: {context.get('exclusion', '')}
+
+        Revisor A:
+        {json.dumps({
+            "decision": reviewer_a.get("decision", ""),
+            "reason": reviewer_a.get("reason", ""),
+            "detail": reviewer_a.get("reason_detail", ""),
+        }, ensure_ascii=False)}
+
+        Revisor B:
+        {json.dumps({
+            "decision": reviewer_b.get("decision", ""),
+            "reason": reviewer_b.get("reason", ""),
+            "detail": reviewer_b.get("reason_detail", ""),
+        }, ensure_ascii=False)}
+
+        Evidencia del estudio:
+        {json.dumps({
+            "doi": row.get("assigned_doi", ""),
+            "title": row.get("title_original", ""),
+            "full_text_digest": digest,
+        }, ensure_ascii=False)}
+
+        Decide `include` o `exclude`, identifica la regla decisiva y explica por
+        qué una de las dos interpretaciones es más consistente con la evidencia.
+        """
+    ).strip()
+    try:
+        log_position = len(model_log)
+        parsed = parse_json_response(
+            call_llm(
+                prompt,
+                schema,
+                model_log,
+                preferred_models=ADJUDICATOR_MODELS,
+                request_timeout_seconds=180,
+                retries=1,
+            )
+        )
+        decision = canonicalize_screening_decision(
+            str(parsed.get("decision", "")),
+            "full_text",
+        )
+        if decision not in {"include_ft", "exclude"}:
+            raise ValueError("Adjudicator returned an invalid decision")
+        engine = (
+            model_log[-1]
+            if len(model_log) > log_position
+            else "deterministic_contract_adjudication"
+        )
+        source = reviewer_a if decision == canonicalize_screening_decision(
+            str(reviewer_a.get("decision", "")),
+            "full_text",
+        ) else reviewer_b
+        return {
+            **source,
+            "decision": "include" if decision == "include_ft" else "exclude",
+            "reason": str(parsed.get("reason", "") or "adjudicated_eligibility"),
+            "reason_detail": str(parsed.get("reason_detail", "") or ""),
+            "confidence": bounded_score(parsed.get("confidence"), 72),
+            "_engine": engine,
+        }
+    except Exception:
+        return {**fallback, "_engine": "deterministic_contract_adjudication"}
+
+
+def full_text_review_checkpoint_signature(
+    review_dir: pathlib.Path,
+    candidates: list[dict[str, str]],
+) -> str:
+    """Bind screening judgments to the frozen protocol and exact full text."""
+
+    snapshot = {
+        "protocol_manifest_sha256": manifest_sha(review_dir),
+        "candidates": [
+            {
+                "record_id": row.get("record_id", ""),
+                "assigned_doi": normalize_doi(
+                    str(row.get("assigned_doi", "") or "")
+                ),
+                "full_text_sha256": hashlib.sha256(
+                    str(row.get("full_text_text", "") or "").encode("utf-8")
+                ).hexdigest(),
+            }
+            for row in candidates
+        ],
+    }
+    encoded = json.dumps(
+        snapshot,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def load_full_text_review_checkpoint(
+    review_dir: pathlib.Path,
+    candidates: list[dict[str, str]],
+) -> tuple[
+    dict[str, dict[str, object]],
+    dict[str, dict[str, object]],
+] | None:
+    """Reuse expensive A/B judgments only when their evidence is unchanged."""
+
+    path = review_dir / "screening" / "full-text-review-checkpoint.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        payload.get("schema_version")
+        != "hermes.full-text-review-checkpoint/v1"
+        or payload.get("signature")
+        != full_text_review_checkpoint_signature(review_dir, candidates)
+    ):
+        return None
+    primary = payload.get("reviewer_a")
+    secondary = payload.get("reviewer_b")
+    expected_ids = {row.get("record_id", "") for row in candidates}
+    if (
+        not isinstance(primary, dict)
+        or not isinstance(secondary, dict)
+        or set(primary) != expected_ids
+        or set(secondary) != expected_ids
+    ):
+        return None
+    return primary, secondary
+
+
+def write_full_text_review_checkpoint(
+    review_dir: pathlib.Path,
+    candidates: list[dict[str, str]],
+    primary: dict[str, dict[str, object]],
+    secondary: dict[str, dict[str, object]],
+) -> pathlib.Path:
+    """Persist exact independent judgments before researcher adjudication."""
+
+    return write_json_atomic(
+        review_dir / "screening" / "full-text-review-checkpoint.json",
+        {
+            "schema_version": "hermes.full-text-review-checkpoint/v1",
+            "signature": full_text_review_checkpoint_signature(
+                review_dir,
+                candidates,
+            ),
+            "reviewer_a": primary,
+            "reviewer_b": secondary,
+        },
+    )
+
+
+def preserved_case_reviews(
+    case: dict[str, object],
+) -> tuple[
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+]:
+    """Restore the exact A/B/recommendation bundle shown to the researcher."""
+
+    restored: list[dict[str, object]] = []
+    for key in ("reviewer_a", "reviewer_b", "automatic_recommendation"):
+        raw = case.get(key)
+        value = dict(raw) if isinstance(raw, dict) else {}
+        value["_engine"] = value.pop("engine", "")
+        restored.append(value)
+    return restored[0], restored[1], restored[2]
+
+
+def reconcile_full_text_reviews(
+    review_dir: pathlib.Path,
+    candidates: list[dict[str, str]],
+    primary: dict[str, dict[str, object]],
+    secondary: dict[str, dict[str, object]],
+    context: dict[str, str],
+    model_log: list[str],
+) -> dict[str, dict[str, object]]:
+    """Adjudicate every disagreement and publish reliability evidence."""
+
+    resolved: dict[str, dict[str, object]] = {}
+    audit_rows: list[dict[str, object]] = []
+    disagreement_cases: list[dict[str, object]] = []
+    current_manifest_sha = manifest_sha(review_dir)
+    preserved_by_record = {
+        str(case.get("record_id") or ""): case
+        for case in preserved_disagreement_cases(review_dir)
+        if str(case.get("protocol_manifest_sha256") or "")
+        == current_manifest_sha
+    }
+    for row in candidates:
+        record_id = row["record_id"]
+        left = primary[record_id]
+        right = secondary[record_id]
+        preserved_case = preserved_by_record.get(record_id)
+        if preserved_case:
+            left, right, preserved_recommendation = preserved_case_reviews(
+                preserved_case
+            )
+        else:
+            preserved_recommendation = {}
+        left_decision = canonicalize_screening_decision(
+            str(left.get("decision", "")),
+            "full_text",
+        )
+        right_decision = canonicalize_screening_decision(
+            str(right.get("decision", "")),
+            "full_text",
+        )
+        agrees = binary_decision(left_decision, "full_text") == binary_decision(
+            right_decision,
+            "full_text",
+        )
+        adjudicated: dict[str, object] = {}
+        researcher_resolution: dict[str, object] = {}
+        if agrees:
+            final = dict(left)
+        else:
+            adjudicated = (
+                preserved_recommendation
+                if preserved_case
+                else adjudicate_full_text_disagreement(
+                    row,
+                    context,
+                    left,
+                    right,
+                    model_log,
+                )
+            )
+            case = (
+                preserved_case
+                if preserved_case
+                else build_case(review_dir, row, left, right, adjudicated)
+            )
+            disagreement_cases.append(case)
+            researcher_resolution = resolution_for_case(review_dir, case) or {}
+            if researcher_resolution:
+                final = {
+                    **adjudicated,
+                    "decision": researcher_resolution["decision"],
+                    "reason": "researcher_disagreement_resolution",
+                    "reason_detail": researcher_resolution.get("reason", ""),
+                    "_engine": "signed_researcher_resolution",
+                    "_researcher_resolution": researcher_resolution,
+                }
+            else:
+                final = {
+                    **adjudicated,
+                    "_requires_researcher_decision": True,
+                    "_disagreement_case_id": case["case_id"],
+                }
+        final_decision = canonicalize_screening_decision(
+            str(final.get("decision", "")),
+            "full_text",
+        )
+        resolved[record_id] = final
+        audit_rows.append(
+            {
+                "stage": "full_text",
+                "record_id": record_id,
+                "assigned_doi": row.get("assigned_doi", ""),
+                "reviewer_a_decision": left_decision,
+                "reviewer_b_decision": right_decision,
+                "agreement": "yes" if agrees else "no",
+                "adjudicator_decision": (
+                    canonicalize_screening_decision(
+                        str(adjudicated.get("decision", "")),
+                        "full_text",
+                    )
+                    if adjudicated
+                    else ""
+                ),
+                "researcher_decision": researcher_resolution.get("decision", ""),
+                "final_decision": (
+                    final_decision
+                    if agrees or researcher_resolution
+                    else "pending_researcher"
+                ),
+                "reviewer_a_reason": left.get("reason", ""),
+                "reviewer_b_reason": right.get("reason", ""),
+                "adjudicator_reason": adjudicated.get("reason", ""),
+                "researcher_reason": researcher_resolution.get("reason", ""),
+                "reviewer_a_engine": left.get("_engine", PRIMARY_MODELS[0]),
+                "reviewer_b_engine": right.get("_engine", REVIEWER_MODELS[0]),
+                "adjudicator_engine": adjudicated.get("_engine", ""),
+                "researcher_identity": (
+                    (
+                        researcher_resolution.get("researcher", {})
+                        if isinstance(
+                            researcher_resolution.get("researcher"),
+                            dict,
+                        )
+                        else {}
+                    ).get("name", "")
+                ),
+            }
+        )
+    limitations = []
+    if set(PRIMARY_MODELS) & set(REVIEWER_MODELS):
+        limitations.append(
+            "Reviewer A and reviewer B used independent calls to the same "
+            "configured model because no distinct review model was available."
+        )
+    if set(ADJUDICATOR_MODELS) & (set(PRIMARY_MODELS) | set(REVIEWER_MODELS)):
+        limitations.append(
+            "The adjudicator reused a configured model role; decisions remain "
+            "separate calls and this dependence is reported."
+        )
+    write_dual_review_artifacts(
+        review_dir,
+        "full_text",
+        audit_rows,
+        limitations=limitations,
+    )
+    # Keep resolved cases as durable evidence so a later crash cannot force the
+    # researcher to adjudicate the same A/B disagreement a second time.
+    write_pending_cases(review_dir, disagreement_cases)
+    return resolved
+
+
 def bootstrap_title_abstract_screening(review_dir: pathlib.Path, enriched_rows: list[dict[str, str]], context: dict[str, str], model_log: list[str]) -> None:
     screening_path = review_dir / "screening" / "title-abstract.csv"
+    dual_review_path = review_dir / "screening" / "title-abstract-dual-review.csv"
+    reliability_path = review_dir / "screening" / "screening-reliability.json"
     existing_rows = read_csv(screening_path)
     profile = (
         "creativity_llm"
@@ -5087,10 +5848,21 @@ def bootstrap_title_abstract_screening(review_dir: pathlib.Path, enriched_rows: 
         f"screening_profile={profile}" in (row.get("notes") or "")
         and rules_version in (row.get("notes") or "")
         for row in existing_rows[: min(len(existing_rows), 25)]
-    ) and len(existing_rows) == len(enriched_rows) and existing_ids == current_ids:
+    ) and len(existing_rows) == len(enriched_rows) and existing_ids == current_ids and dual_review_path.is_file() and reliability_path.is_file():
         return
 
-    ta_results = classify_title_abstract(enriched_rows, context)
+    primary_results = classify_title_abstract(enriched_rows, context, model_log)
+    secondary_results = classify_title_abstract_reviewer_b(
+        enriched_rows,
+        context,
+        model_log,
+    )
+    ta_results = reconcile_title_abstract_reviews(
+        review_dir,
+        enriched_rows,
+        primary_results,
+        secondary_results,
+    )
     ta_rows: list[dict[str, object]] = []
     for row in enriched_rows:
         result = ta_results.get(
@@ -5225,21 +5997,15 @@ def download_pdf_candidate(review_dir: pathlib.Path, row: dict[str, str], url: s
     pdf_dir.mkdir(parents=True, exist_ok=True)
     txt_dir.mkdir(parents=True, exist_ok=True)
 
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            content_type = response.headers.get("Content-Type", "")
-            body = response.read()
-    except Exception:
-        return "", ""
-
-    if not ("pdf" in content_type.lower() or url.lower().endswith(".pdf") or body[:4] == b"%PDF"):
+        downloaded = download_pdf(url)
+    except (OSError, UnsafeDownloadError, urllib.error.URLError):
         return "", ""
 
     stem = slugify(row.get("record_id", "record")) or "record"
     pdf_path = pdf_dir / f"{stem}.pdf"
     txt_path = txt_dir / f"{stem}.txt"
-    pdf_path.write_bytes(body)
+    pdf_path.write_bytes(downloaded.body)
     try:
         subprocess.run(
             ["pdftotext", str(pdf_path), str(txt_path)],
@@ -6190,7 +6956,12 @@ def main(argv: list[str]) -> int:
     model_log: list[str] = []
     bootstrap_title_abstract_screening(review_dir, enriched_rows, research_context, model_log)
     enriched_rows, by_record = enrich_rows(review_dir)
-    title_abstract_candidates = [row for row in enriched_rows if row.get("ta_decision") in {"include", "maybe"}]
+    title_abstract_candidates = [
+        row
+        for row in enriched_rows
+        if row.get("ta_decision") in {"include", "maybe"}
+        and normalize_doi(str(row.get("assigned_doi", "") or ""))
+    ]
     candidate_rows = prioritize_full_text_candidates(title_abstract_candidates, n_limit, research_context)
     append_retrieval_budget_log(
         review_dir,
@@ -6233,20 +7004,73 @@ def main(argv: list[str]) -> int:
                 included_count=0,
             )
 
-    full_text_results = classify_full_text(review_dir, candidate_rows, research_context, model_log)
+    screening_checkpoint = load_full_text_review_checkpoint(
+        review_dir,
+        candidate_rows,
+    )
+    if screening_checkpoint is None:
+        primary_full_text_results = classify_full_text(
+            review_dir,
+            candidate_rows,
+            research_context,
+            model_log,
+        )
+        secondary_full_text_results = classify_full_text_reviewer_b(
+            candidate_rows,
+            research_context,
+            model_log,
+        )
+        write_full_text_review_checkpoint(
+            review_dir,
+            candidate_rows,
+            primary_full_text_results,
+            secondary_full_text_results,
+        )
+    else:
+        primary_full_text_results, secondary_full_text_results = (
+            screening_checkpoint
+        )
+        model_log.append(
+            "full_text_screening=checkpoint_reused;"
+            "reason=protocol_and_evidence_unchanged"
+        )
+    full_text_results = reconcile_full_text_reviews(
+        review_dir,
+        candidate_rows,
+        primary_full_text_results,
+        secondary_full_text_results,
+        research_context,
+        model_log,
+    )
 
     full_text_rows: list[dict[str, object]] = []
     included_rows: list[dict[str, str]] = []
+    pending_disagreement_count = 0
     for row_index, row in enumerate(candidate_rows, start=1):
         result = full_text_results[row["record_id"]]
         normalized_ft_decision = canonicalize_screening_decision(result.get("decision", ""), "full_text")
+        requires_researcher_decision = bool(
+            result.get("_requires_researcher_decision")
+        )
         missing_doi = not normalize_doi(str(row.get("assigned_doi", "") or ""))
-        include = normalized_ft_decision == "include_ft" and not missing_doi
+        include = (
+            normalized_ft_decision == "include_ft"
+            and not missing_doi
+            and not requires_researcher_decision
+        )
         full_text_path = row.get("full_text_path", "")
         full_text_text = row.get("full_text_text", "")
         title_es = row.get("title_es", "")
         abstract_es = row.get("abstract_es", "")
-        full_text_decision = "include_ft" if include else (normalized_ft_decision or "exclude")
+        full_text_decision = (
+            "pending_researcher"
+            if requires_researcher_decision
+            else "include_ft"
+            if include
+            else (normalized_ft_decision or "exclude")
+        )
+        if requires_researcher_decision:
+            pending_disagreement_count += 1
         if missing_doi and normalized_ft_decision == "include_ft":
             full_text_decision = "exclude"
             result["reason"] = "missing_doi"
@@ -6298,6 +7122,43 @@ def main(argv: list[str]) -> int:
                 included_count=len(included_rows),
             )
             checkpoint_sync(review_dir)
+
+    if pending_disagreement_count:
+        write_csv(
+            review_dir / "screening" / "full-text.csv",
+            FULLTEXT_FIELDS,
+            full_text_rows,
+        )
+        write_full_text_manifest(review_dir, candidate_rows, full_text_rows)
+        update_prisma_counts_snapshot(
+            review_dir,
+            all_candidates=candidate_rows,
+            candidate_rows=candidate_rows,
+            full_text_rows=full_text_rows,
+            included_count=len(included_rows),
+        )
+        checkpoint_sync(review_dir)
+        print(
+            json.dumps(
+                {
+                    "status": "waiting_for_researcher",
+                    "review_dir": str(review_dir),
+                    "pending_disagreements": pending_disagreement_count,
+                    "pending_file": str(
+                        review_dir
+                        / "screening"
+                        / "pending-disagreements.json"
+                    ),
+                    "message": (
+                        "All non-disputed work is preserved. Resolve each DOI "
+                        "before extraction and publication continue."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 3
 
     shortlist: list[dict[str, object]] = []
     selected_ids: set[str] = set()
@@ -6377,6 +7238,16 @@ def main(argv: list[str]) -> int:
     write_csv(review_dir / "screening" / "full-text.csv", FULLTEXT_FIELDS, full_text_rows)
     write_csv(review_dir / "extraction" / "extraction-table.csv", EXTRACTION_FIELDS, extraction_rows)
     write_csv(review_dir / "selection" / "ultraquality-shortlist.csv", SHORTLIST_FIELDS, shortlist)
+    print("[gold] generando conjuntos de referencia adjudicados", flush=True)
+    subprocess.run(
+        [
+            sys.executable,
+            str(pathlib.Path(__file__).with_name("generate_review_gold.py")),
+            str(review_dir),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
     write_full_text_manifest(review_dir, candidate_rows, full_text_rows)
     checkpoint_sync(review_dir)
     update_prisma_counts_snapshot(

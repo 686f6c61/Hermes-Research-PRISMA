@@ -15,6 +15,10 @@ host_uid="$(id -u)"
 host_gid="$(id -g)"
 tmp_root=""
 
+# Compose interpolates the Docling profile even though this test only builds the
+# Hermes service. Keep the test isolated from the operator's private .env file.
+export HERMES_DOCLING_API_KEY="${HERMES_DOCLING_API_KEY:-plugin-only-docling-key-not-for-runtime-0001}"
+
 cleanup() {
   if [[ -n "${tmp_root}" && -d "${tmp_root}" ]]; then
     find "${tmp_root}" -depth -delete
@@ -84,10 +88,17 @@ common_run_args=(
   -e HOME=/opt/data/home/default
   -e HERMES_TELEGRAM_PUBLIC_MENU_ONLY=1
   -e HERMES_INFERENCE_API_KEY=test-only
+  -e HERMES_INFERENCE_BASE_URL=https://inference.example.test/v1
+  -e HERMES_MODEL_PRIMARY=primary-test
+  -e HERMES_MODEL_VISION=vision-test
+  -e HERMES_MODEL_REVIEW=review-test
   -v "${tmp_root}/home:/opt/data"
   -v "${tmp_root}/workspace:/workspace"
   "${image_ref}"
 )
+
+docker run --entrypoint python "${common_run_args[@]}" \
+  /opt/data/bin/configure-runtime.py
 
 section "Discover plugin and public commands"
 plugin_status="$(
@@ -100,6 +111,7 @@ grep -Eq "^enabled[[:space:]]+user[[:space:]]+${escaped_version}[[:space:]]+herm
 
 docker run --entrypoint python "${common_run_args[@]}" -c '
 from hermes_cli.plugins import discover_plugins, get_plugin_commands
+from hermes_cli.commands import telegram_menu_commands
 
 discover_plugins(force=True)
 commands = get_plugin_commands()
@@ -107,8 +119,14 @@ expected = {"research", "nueva_revision", "estado", "reanudar", "cancelar", "ayu
 missing = sorted(expected - set(commands))
 if missing:
     raise SystemExit(f"Missing plugin commands: {missing}")
+
+menu, _hidden = telegram_menu_commands(max_commands=6)
+menu_names = [name for name, _description in menu]
+expected_menu = ["start", "nueva_revision", "estado", "reanudar", "cancelar", "ayuda"]
+if menu_names != expected_menu:
+    raise SystemExit(f"Unexpected public Telegram menu: {menu_names!r}")
 '
-pass "Hermes loaded every public command through the plugin API"
+pass "Hermes loaded every public command and exposed only the six-command Telegram menu"
 
 section "Exercise gateway hook"
 docker run --entrypoint python "${common_run_args[@]}" -c '

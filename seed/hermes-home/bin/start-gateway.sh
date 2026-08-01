@@ -50,7 +50,7 @@ raise SystemExit(
 PY
 }
 
-configure_telegram_bot() {
+configure_telegram_bot_profile() {
   if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
     return 0
   fi
@@ -65,21 +65,6 @@ configure_telegram_bot() {
 
   curl -fsS -X POST "${api}/setChatMenuButton" \
     -d 'menu_button={"type":"commands"}' >/dev/null
-
-  curl -fsS -X POST "${api}/setMyCommands" \
-    -H 'Content-Type: application/json' \
-    -d @- >/dev/null <<'JSON'
-{
-  "commands": [
-    { "command": "start", "description": "Abrir el menú principal y la guía de inicio" },
-    { "command": "nueva_revision", "description": "Iniciar una revisión nueva paso a paso" },
-    { "command": "estado", "description": "Ver el estado de la revisión activa" },
-    { "command": "reanudar", "description": "Retomar una revisión en curso" },
-    { "command": "cancelar", "description": "Cancelar el intake guiado actual" },
-    { "command": "ayuda", "description": "Ver ejemplos y uso rápido" }
-  ]
-}
-JSON
 }
 
 ensure_tirith_ready
@@ -89,10 +74,11 @@ fi
 hermes gateway &
 gateway_pid=$!
 
-# Hermes publica primero su propio menú; después lo dejamos en castellano.
+# The upstream adapter owns command publication from config.yaml. This loop only
+# applies product copy and the Telegram menu button after the gateway starts.
 for _ in 1 2 3 4 5; do
   sleep 2
-  if configure_telegram_bot; then
+  if configure_telegram_bot_profile; then
     break
   fi
 done

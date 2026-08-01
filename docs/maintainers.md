@@ -17,10 +17,17 @@ materiales de una ejecución y no debe copiarse al release.
 ## Cambios de código
 
 ```bash
-make check
+python3 -m venv .venv
+make install-dev PYTHON=./.venv/bin/python
+make check PYTHON=./.venv/bin/python
 ./scripts/sync-bundle-assets.sh
 ./hermes-research cleanroom-validate
 ```
+
+No ejecutes `python3 -m pytest` con un Python del host sin preparar. La suite
+incluye el análisis de redes y necesita las versiones fijadas en
+`build/research-requirements.txt`; `make install-dev` instala ese contrato y
+evita convertir una dependencia ausente en un falso fallo del producto.
 
 Si cambia PDF, modelos o Docker:
 

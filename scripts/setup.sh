@@ -88,6 +88,16 @@ semantic_scholar_key="${HERMES_SEMANTIC_SCHOLAR_API_KEY:-$(env_value HERMES_SEMA
 lens_key="${HERMES_LENS_API_KEY:-$(env_value HERMES_LENS_API_KEY)}"
 ncbi_email="${HERMES_NCBI_EMAIL:-$(env_value HERMES_NCBI_EMAIL)}"
 ncbi_key="${HERMES_NCBI_API_KEY:-$(env_value HERMES_NCBI_API_KEY)}"
+scopus_key="${HERMES_SCOPUS_API_KEY:-$(env_value HERMES_SCOPUS_API_KEY)}"
+elsevier_inst_token="${HERMES_ELSEVIER_INST_TOKEN:-$(env_value HERMES_ELSEVIER_INST_TOKEN)}"
+wos_key="${HERMES_WOS_API_KEY:-$(env_value HERMES_WOS_API_KEY)}"
+embase_key="${HERMES_EMBASE_API_KEY:-$(env_value HERMES_EMBASE_API_KEY)}"
+ieee_key="${HERMES_IEEE_API_KEY:-$(env_value HERMES_IEEE_API_KEY)}"
+researcher_name="${HERMES_RESEARCHER_NAME:-$(env_value HERMES_RESEARCHER_NAME)}"
+researcher_email="${HERMES_RESEARCHER_EMAIL:-$(env_value HERMES_RESEARCHER_EMAIL)}"
+researcher_orcid="${HERMES_RESEARCHER_ORCID:-$(env_value HERMES_RESEARCHER_ORCID)}"
+adjudication_secret="${HERMES_ADJUDICATION_SECRET:-$(env_value HERMES_ADJUDICATION_SECRET)}"
+docling_api_key="${HERMES_DOCLING_API_KEY:-$(env_value HERMES_DOCLING_API_KEY)}"
 runtime_uid="${HERMES_UID:-$(id -u)}"
 runtime_gid="${HERMES_GID:-$(id -g)}"
 
@@ -104,12 +114,29 @@ review_model="$(prompt_value "Modelo revisor independiente" "${review_model:-${v
 api_key="$(prompt_secret "API key del proveedor" "${api_key}")"
 
 printf '\nFuentes académicas: las credenciales siguientes son opcionales.\n' >&2
-contact_email="$(prompt_value "Email técnico de contacto para APIs académicas (opcional)" "${contact_email}")"
+contact_email="$(prompt_value "Email técnico de contacto para APIs académicas" "${contact_email}")"
 unpaywall_email="$(prompt_value "Email para Unpaywall (opcional)" "${unpaywall_email:-${contact_email}}")"
 semantic_scholar_key="$(prompt_secret "API key de Semantic Scholar (opcional)" "${semantic_scholar_key}")"
 lens_key="$(prompt_secret "API key de Lens Scholarly (opcional)" "${lens_key}")"
 ncbi_email="$(prompt_value "Email para NCBI/PubMed (opcional)" "${ncbi_email:-${contact_email}}")"
 ncbi_key="$(prompt_secret "API key de NCBI/PubMed (opcional)" "${ncbi_key}")"
+scopus_key="$(prompt_secret "API key institucional de Scopus (opcional)" "${scopus_key}")"
+elsevier_inst_token="$(prompt_secret "Token institucional de Elsevier para Scopus/Embase (opcional)" "${elsevier_inst_token}")"
+wos_key="$(prompt_secret "API key institucional de Web of Science (opcional)" "${wos_key}")"
+embase_key="$(prompt_secret "API key institucional de Embase (opcional)" "${embase_key}")"
+ieee_key="$(prompt_secret "API key institucional de IEEE Xplore (opcional)" "${ieee_key}")"
+
+printf '\nIdentidad científica: se usa para contratos y adjudicaciones firmadas.\n' >&2
+researcher_name="$(prompt_value "Nombre completo del investigador responsable" "${researcher_name}")"
+researcher_email="$(prompt_value "Email del investigador responsable" "${researcher_email:-${contact_email}}")"
+researcher_orcid="$(prompt_value "ORCID del investigador (opcional)" "${researcher_orcid}")"
+
+if [[ -z "${adjudication_secret}" ]]; then
+  adjudication_secret="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+fi
+if [[ -z "${docling_api_key}" ]]; then
+  docling_api_key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+fi
 
 if [[ "${mode}" == "telegram" || "${mode}" == "both" ]]; then
   telegram_token="$(prompt_secret "Token de Telegram" "${telegram_token}")"
@@ -161,9 +188,15 @@ fi
 [[ -n "${base_url}" ]] || fail "Falta HERMES_INFERENCE_BASE_URL"
 [[ -n "${api_key}" ]] || fail "Falta HERMES_INFERENCE_API_KEY"
 [[ -n "${primary_model}" ]] || fail "Falta HERMES_MODEL_PRIMARY"
+[[ -n "${contact_email}" ]] || fail "Falta HERMES_CONTACT_EMAIL"
+[[ -n "${researcher_name}" ]] || fail "Falta HERMES_RESEARCHER_NAME"
+[[ -n "${researcher_email}" ]] || fail "Falta HERMES_RESEARCHER_EMAIL"
 valid_email_or_empty "${contact_email}" || fail "HERMES_CONTACT_EMAIL no parece un email válido"
 valid_email_or_empty "${unpaywall_email}" || fail "HERMES_UNPAYWALL_EMAIL no parece un email válido"
 valid_email_or_empty "${ncbi_email}" || fail "HERMES_NCBI_EMAIL no parece un email válido"
+valid_email_or_empty "${researcher_email}" || fail "HERMES_RESEARCHER_EMAIL no parece un email válido"
+[[ "${#adjudication_secret}" -ge 32 ]] || fail "HERMES_ADJUDICATION_SECRET debe tener al menos 32 caracteres"
+[[ "${#docling_api_key}" -ge 32 ]] || fail "HERMES_DOCLING_API_KEY debe tener al menos 32 caracteres"
 
 export SETUP_MODE="${mode}"
 export SETUP_BASE_URL="${base_url%/}"
@@ -181,6 +214,17 @@ export SETUP_SEMANTIC_SCHOLAR_KEY="${semantic_scholar_key}"
 export SETUP_LENS_KEY="${lens_key}"
 export SETUP_NCBI_EMAIL="${ncbi_email}"
 export SETUP_NCBI_KEY="${ncbi_key}"
+export SETUP_SCOPUS_KEY="${scopus_key}"
+export SETUP_ELSEVIER_INST_TOKEN="${elsevier_inst_token}"
+export SETUP_WOS_KEY="${wos_key}"
+export SETUP_EMBASE_KEY="${embase_key}"
+export SETUP_IEEE_KEY="${ieee_key}"
+export SETUP_RESEARCHER_NAME="${researcher_name}"
+export SETUP_RESEARCHER_EMAIL="${researcher_email}"
+export SETUP_RESEARCHER_ORCID="${researcher_orcid}"
+export SETUP_ADJUDICATION_SECRET="${adjudication_secret}"
+export SETUP_ADJUDICATION_ALLOWED_USERS="${telegram_allowed_users}"
+export SETUP_DOCLING_API_KEY="${docling_api_key}"
 export SETUP_RUNTIME_UID="${runtime_uid}"
 export SETUP_RUNTIME_GID="${runtime_gid}"
 
@@ -211,6 +255,17 @@ updates = {
     "HERMES_LENS_API_KEY": os.environ["SETUP_LENS_KEY"],
     "HERMES_NCBI_EMAIL": os.environ["SETUP_NCBI_EMAIL"],
     "HERMES_NCBI_API_KEY": os.environ["SETUP_NCBI_KEY"],
+    "HERMES_SCOPUS_API_KEY": os.environ["SETUP_SCOPUS_KEY"],
+    "HERMES_ELSEVIER_INST_TOKEN": os.environ["SETUP_ELSEVIER_INST_TOKEN"],
+    "HERMES_WOS_API_KEY": os.environ["SETUP_WOS_KEY"],
+    "HERMES_EMBASE_API_KEY": os.environ["SETUP_EMBASE_KEY"],
+    "HERMES_IEEE_API_KEY": os.environ["SETUP_IEEE_KEY"],
+    "HERMES_RESEARCHER_NAME": os.environ["SETUP_RESEARCHER_NAME"],
+    "HERMES_RESEARCHER_EMAIL": os.environ["SETUP_RESEARCHER_EMAIL"],
+    "HERMES_RESEARCHER_ORCID": os.environ["SETUP_RESEARCHER_ORCID"],
+    "HERMES_ADJUDICATION_SECRET": os.environ["SETUP_ADJUDICATION_SECRET"],
+    "HERMES_ADJUDICATION_ALLOWED_USERS": os.environ["SETUP_ADJUDICATION_ALLOWED_USERS"],
+    "HERMES_DOCLING_API_KEY": os.environ["SETUP_DOCLING_API_KEY"],
     "HERMES_UID": os.environ["SETUP_RUNTIME_UID"],
     "HERMES_GID": os.environ["SETUP_RUNTIME_GID"],
 }
@@ -236,6 +291,8 @@ path.chmod(0o600)
 PY
 
 unset SETUP_API_KEY SETUP_TELEGRAM_TOKEN SETUP_SEMANTIC_SCHOLAR_KEY SETUP_LENS_KEY SETUP_NCBI_KEY
+unset SETUP_SCOPUS_KEY SETUP_ELSEVIER_INST_TOKEN SETUP_WOS_KEY SETUP_EMBASE_KEY SETUP_IEEE_KEY
+unset SETUP_ADJUDICATION_SECRET SETUP_DOCLING_API_KEY
 pass "Configuración guardada en .env con permisos 600"
 printf '\nSiguientes pasos:\n'
 printf '  ./hermes-research doctor\n'

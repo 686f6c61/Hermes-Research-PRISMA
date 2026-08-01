@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import pathlib
 import re
@@ -12,8 +13,10 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from adjudication_security import verify_adjudication
 from artifact_contracts import write_json_atomic
 from review_mode_router import MODE_CONFIG
+from screening_disagreement import resolution_status
 
 FALLBACK_EXTRACTION_MARKERS = [
     "extraccion de respaldo por respuesta incompleta o error transitorio del modelo",
@@ -144,6 +147,32 @@ def has_fallback_marker(text: str) -> bool:
     return any(marker in blob for marker in FALLBACK_EXTRACTION_MARKERS)
 
 
+def validate_gold_manifest(
+    review_dir: pathlib.Path,
+    manifest: dict,
+) -> tuple[bool, str]:
+    """Verify every generated reference-set file against its recorded hash."""
+
+    if manifest.get("scope") != "machine_adjudicated_operational_reference":
+        return False, "El manifiesto gold no declara su alcance operacional."
+    if manifest.get("external_human_ground_truth") is not False:
+        return False, "El manifiesto gold atribuye una validación humana inexistente."
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        return False, "El manifiesto gold no enumera sus artefactos."
+    root = review_dir.resolve()
+    for item in files:
+        if not isinstance(item, dict):
+            return False, "El manifiesto gold contiene una entrada inválida."
+        path = (review_dir / str(item.get("path") or "")).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return False, f"Falta el artefacto gold `{item.get('path', '')}`."
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != str(item.get("sha256") or ""):
+            return False, f"Hash incorrecto para `{item.get('path', '')}`."
+    return True, f"{len(files)} artefactos gold verificados por SHA-256."
+
+
 def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, int | str]]:
     publication_audit = read_text(review_dir / "paper" / "audit" / "publication-audit.md")
     publication_status = parse_status(publication_audit)
@@ -157,6 +186,18 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
     page_render_evidence = read_csv_rows(review_dir / "figures" / "page-render-manifest.csv")
     table_evidence = read_csv_rows(review_dir / "tables" / "evidence-manifest.csv")
     full_text_rows = read_csv_rows(review_dir / "screening" / "full-text.csv")
+    title_dual_rows = read_csv_rows(
+        review_dir / "screening" / "title-abstract-dual-review.csv"
+    )
+    full_text_dual_rows = read_csv_rows(
+        review_dir / "screening" / "full-text-dual-review.csv"
+    )
+    screening_reliability = read_json(
+        review_dir / "screening" / "screening-reliability.json"
+    )
+    gold_manifest = read_json(
+        review_dir / "paper" / "audit" / "gold" / "gold-manifest.json"
+    )
     full_text_manifest_rows = read_csv_rows(review_dir / "fulltext" / "manifest.csv")
     extraction_rows = read_csv_rows(review_dir / "extraction" / "extraction-table.csv")
     shortlist_rows = read_csv_rows(review_dir / "selection" / "ultraquality-shortlist.csv")
@@ -226,20 +267,86 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
         )
     )
     validation_mode = str(intake_contract.get("validation_mode") or "autonomous").lower()
+    adjudication_valid, adjudication_detail = verify_adjudication(
+        review_dir,
+        human_adjudication,
+    )
     adjudication_approved = (
-        str(human_adjudication.get("decision") or "").lower() in {"approved", "approve", "pass"}
-        and bool(human_adjudication.get("reviewer"))
-        and bool(human_adjudication.get("timestamp"))
+        adjudication_valid
+        and str(human_adjudication.get("decision") or "").lower() == "approved"
     )
     checks.append(
         Check(
             "politica_validacion",
             "PASS" if validation_mode != "adjudicated" or adjudication_approved else "FAIL",
             (
-                f"Modo `{validation_mode}` satisfecho."
+                (
+                    f"Modo `{validation_mode}` satisfecho con una adjudicación firmada."
+                    if validation_mode == "adjudicated"
+                    else f"Modo `{validation_mode}` satisfecho."
+                )
                 if validation_mode != "adjudicated" or adjudication_approved
-                else "El intake exige adjudicación: falta una aprobación completa en `paper/audit/human-adjudication.json`."
+                else (
+                    "El intake exige adjudicación firmada y vinculada al contrato actual: "
+                    f"{adjudication_detail}."
+                )
             ),
+        )
+    )
+    reliability_stages = screening_reliability.get("stages", {})
+    title_metrics = (
+        reliability_stages.get("title_abstract", {})
+        if isinstance(reliability_stages, dict)
+        else {}
+    )
+    full_text_metrics = (
+        reliability_stages.get("full_text", {})
+        if isinstance(reliability_stages, dict)
+        else {}
+    )
+    disagreement_state = resolution_status(review_dir)
+    unresolved_disagreements = int(disagreement_state["unresolved"])
+    paired_screening_ok = bool(
+        title_dual_rows
+        and full_text_dual_rows
+        and int(title_metrics.get("paired_judgments") or 0)
+        == len(title_dual_rows)
+        and int(full_text_metrics.get("paired_judgments") or 0)
+        == len(full_text_dual_rows)
+        and int(full_text_metrics.get("adjudicated_disagreements") or 0)
+        == int(full_text_metrics.get("disagreements") or 0)
+        and int(
+            full_text_metrics.get("researcher_resolved_disagreements") or 0
+        )
+        == int(full_text_metrics.get("disagreements") or 0)
+        and unresolved_disagreements == 0
+    )
+    checks.append(
+        Check(
+            "doble_juicio_cribado",
+            "PASS" if paired_screening_ok else "FAIL",
+            (
+                "Todos los registros tienen dos juicios automáticos independientes; "
+                f"acuerdo bruto en texto completo: {full_text_metrics.get('raw_agreement')}; "
+                f"kappa: {full_text_metrics.get('cohen_kappa')}; recomendaciones "
+                f"automáticas: {full_text_metrics.get('adjudicated_disagreements', 0)}; "
+                "discrepancias resueltas y firmadas por el investigador: "
+                f"{full_text_metrics.get('researcher_resolved_disagreements', 0)}."
+            )
+            if paired_screening_ok
+            else (
+                "Faltan juicios emparejados, métricas de acuerdo o decisiones "
+                "firmadas del investigador para todas las discrepancias. "
+                f"Casos pendientes: {unresolved_disagreements}."
+            ),
+        )
+    )
+    gold_valid, gold_detail = validate_gold_manifest(review_dir, gold_manifest)
+    checks.append(
+        Check(
+            "conjunto_gold_operacional",
+            "PASS" if gold_valid else "FAIL",
+            gold_detail,
         )
     )
     mode_playbook_keys = [

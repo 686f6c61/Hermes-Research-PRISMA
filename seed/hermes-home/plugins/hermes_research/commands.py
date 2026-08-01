@@ -43,6 +43,12 @@ def _help_text() -> str:
         "`/research init` — crear una revisión nueva desde un bloque de intake avanzado\n"
         "`/research status` — ver el estado real de la revisión más reciente o ligada al chat\n"
         "`/research resume` — relanzar la revisión desde el punto material en el que quedó\n"
+        "`/research approve` — firmar la aprobación final como investigador responsable\n"
+        "`/research reject` — firmar un rechazo final motivado\n"
+        "`/research disagreements` — revisar discrepancias de elegibilidad por DOI\n"
+        "`/research resolve DOI include|exclude MOTIVO` — decidir una discrepancia y reanudar\n"
+        "`/research changes` — explicar cualquier cambio pendiente del protocolo\n"
+        "`/research approve-change` — aprobar el cambio exacto antes de aplicarlo\n"
         "`/research manifest` — ver qué parte del producto ya migra al plugin\n\n"
         "En Telegram público usa `/nueva_revision`: el hook lo convierte en un wizard conversacional."
     )
@@ -215,7 +221,12 @@ def _background_review_is_running(review_dir: Path) -> tuple[bool, int | None]:
                 return True, pid
             except OSError:
                 return False, pid
-        if status in {"completed", "failed", "cancelled"}:
+        if status in {
+            "completed",
+            "failed",
+            "cancelled",
+            "waiting_for_researcher",
+        }:
             return False, pid or None
 
     # Compatibility with jobs started before the durable ledger existed.
@@ -253,17 +264,12 @@ def _resume_review(binding_key: str, token: str) -> str:
             "Usa `/estado` para seguir el avance real. Solo hace falta `/reanudar` si se queda parada."
         )
 
+    pid = runtime.launch_public_autonomous_review(review_dir)
     log_path = review_dir / "notes" / "run.log"
-    command = [
-        "python3",
-        "-u",
-        str(runtime.prisma_scripts_dir() / "complete_review.py"),
-        str(review_dir),
-    ]
-    pid = runtime.launch_background(command, log_path, cwd=review_dir)
     return (
         f"He reanudado la revisión `{review_dir.name}` en segundo plano.\n"
-        f"- PID: `{pid}`\n"
+        f"- Proceso supervisor: `{pid}`\n"
+        f"- Estado durable: `{runtime.public_job_ledger_path(review_dir)}`\n"
         f"- Log: `{log_path}`"
     )
 
@@ -281,6 +287,266 @@ def _manifest_summary() -> str:
         "- binding de chat a revisión\n"
         "- re-export de skills de research\n\n"
         f"Manifiesto completo: `{manifest_path}`"
+    )
+
+
+def _adjudication_user_allowed(binding_key: str) -> bool:
+    """Allow signed decisions only for explicitly configured Telegram owners."""
+
+    user_id = (binding_key or "").rsplit(":", 1)[-1].strip()
+    configured = (
+        os.getenv("HERMES_ADJUDICATION_ALLOWED_USERS", "").strip()
+        or os.getenv("TELEGRAM_ALLOWED_USERS", "").strip()
+    )
+    allowed = {
+        item.strip()
+        for item in re.split(r"[\s,;]+", configured)
+        if item.strip()
+    }
+    return bool(user_id and user_id in allowed)
+
+
+def _adjudicate_review(binding_key: str, decision: str, reason: str) -> str:
+    """Record a signed decision for the review bound to the requesting owner."""
+
+    if not _adjudication_user_allowed(binding_key):
+        return "Este usuario no está autorizado para firmar la adjudicación científica."
+    review_dir = _resolve_review(binding_key, "")
+    if review_dir is None:
+        return "No encuentro ninguna revisión ligada a este chat."
+    script = runtime.prisma_scripts_dir() / "record_human_adjudication.py"
+    try:
+        output = runtime.run_command_capture(
+            [
+                "python3",
+                str(script),
+                str(review_dir),
+                "--decision",
+                decision,
+                "--reason",
+                reason,
+            ],
+            timeout=120,
+        ).strip()
+    except Exception as exc:
+        return f"No se pudo firmar la adjudicación: {str(exc)[:500]}"
+    return (
+        f"Decisión `{decision}` firmada para `{review_dir.name}`.\n"
+        f"- Registro: `{output or review_dir / 'paper/audit/human-adjudication.json'}`\n"
+        "- La firma queda vinculada al contrato metodológico actual."
+    )
+
+
+def _pending_change_summary(binding_key: str) -> str:
+    """Explain the exact frozen-contract changes awaiting approval."""
+
+    review_dir = _resolve_review(binding_key, "")
+    if review_dir is None:
+        return "No encuentro ninguna revisión ligada a este chat."
+    path = review_dir / "protocol" / "pending-amendment.json"
+    if not path.is_file():
+        return "No hay ningún cambio metodológico pendiente."
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return "La propuesta pendiente no es un JSON válido y no puede aprobarse."
+    lines = [
+        f"Cambio metodológico pendiente en `{review_dir.name}`.",
+        str(payload.get("explanation") or ""),
+    ]
+    for contract in payload.get("contracts") or []:
+        lines.append(f"\n**{contract.get('contract', 'contrato')}**")
+        for item in (contract.get("changes") or [])[:20]:
+            lines.append(
+                f"- `{item.get('path')}`: `{item.get('before')}` → `{item.get('after')}`"
+            )
+    lines.append(
+        "\nSi la propuesta es correcta, usa `/research approve-change MOTIVO`. "
+        "Nada se modifica antes de esa firma."
+    )
+    return "\n".join(lines)
+
+
+def _approve_protocol_change(binding_key: str, reason: str) -> str:
+    """Sign the exact pending amendment for an authorized researcher."""
+
+    if not _adjudication_user_allowed(binding_key):
+        return "Este usuario no está autorizado para aprobar cambios metodológicos."
+    if not (reason or "").strip():
+        return "Explica el motivo: `/research approve-change MOTIVO`."
+    review_dir = _resolve_review(binding_key, "")
+    if review_dir is None:
+        return "No encuentro ninguna revisión ligada a este chat."
+    script = runtime.prisma_scripts_dir() / "approve_protocol_change.py"
+    try:
+        output = runtime.run_command_capture(
+            [
+                "python3",
+                str(script),
+                str(review_dir),
+                "--reason",
+                reason,
+            ],
+            timeout=120,
+        ).strip()
+    except Exception as exc:
+        return f"No se pudo aprobar el cambio: {str(exc)[:500]}"
+    return (
+        f"Cambio firmado para `{review_dir.name}`.\n"
+        f"- Aprobación: `{output}`\n"
+        "- Usa `/reanudar` para aplicar el contrato aprobado y continuar."
+    )
+
+
+def _disagreement_status(review_dir: Path) -> dict[str, object]:
+    """Read signed resolution status through the shared deterministic helper."""
+
+    script = runtime.prisma_scripts_dir() / "resolve_screening_disagreement.py"
+    output = runtime.run_command_capture(
+        [
+            "python3",
+            str(script),
+            str(review_dir),
+            "--list",
+        ],
+        timeout=120,
+    ).strip()
+    payload = json.loads(output)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _pending_disagreements_summary(binding_key: str) -> str:
+    """Show decisions and evidence without exposing internal record identifiers."""
+
+    review_dir = _resolve_review(binding_key, "")
+    if review_dir is None:
+        return "No encuentro ninguna revisión ligada a este chat."
+    try:
+        status = _disagreement_status(review_dir)
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        return f"No se pudieron leer las discrepancias: {str(exc)[:500]}"
+    cases = status.get("unresolved_cases") or []
+    if not isinstance(cases, list) or not cases:
+        if int(status.get("resolved") or 0):
+            return (
+                "Todas las discrepancias ya tienen una decisión firmada. "
+                "El ciclo puede continuar desde su checkpoint."
+            )
+        return "No hay discrepancias de elegibilidad pendientes."
+    lines = [
+        f"**Discrepancias pendientes en `{review_dir.name}`: {len(cases)}**",
+        (
+            "Ningún estudio de esta lista ha sido rechazado automáticamente. "
+            "La recomendación orienta; tú decides si entra en el corpus final."
+        ),
+    ]
+    for case in cases[:10]:
+        if not isinstance(case, dict):
+            continue
+        doi = str(case.get("assigned_doi") or "").strip()
+        title = " ".join(str(case.get("title") or "").split())
+        if len(title) > 180:
+            title = title[:177].rstrip() + "..."
+        reviewer_a = (
+            case.get("reviewer_a")
+            if isinstance(case.get("reviewer_a"), dict)
+            else {}
+        )
+        reviewer_b = (
+            case.get("reviewer_b")
+            if isinstance(case.get("reviewer_b"), dict)
+            else {}
+        )
+        recommendation = (
+            case.get("automatic_recommendation")
+            if isinstance(case.get("automatic_recommendation"), dict)
+            else {}
+        )
+        lines.extend(
+            [
+                "",
+                f"**DOI:** `{doi}`",
+                f"**Título:** {title}",
+                (
+                    f"- Juicio A: `{reviewer_a.get('decision', '')}`; "
+                    f"juicio B: `{reviewer_b.get('decision', '')}`"
+                ),
+                (
+                    "- Recomendación automática no vinculante: "
+                    f"`{recommendation.get('decision', '')}`"
+                ),
+                (
+                    f"- Decide: `/research resolve {doi} "
+                    "include|exclude MOTIVO`"
+                ),
+            ]
+        )
+    if len(cases) > 10:
+        lines.append(f"\nQuedan {len(cases) - 10} casos adicionales.")
+    return "\n".join(lines)
+
+
+def _resolve_screening_disagreement(binding_key: str, body: str) -> str:
+    """Record one signed DOI-level choice and resume after the last conflict."""
+
+    if not _adjudication_user_allowed(binding_key):
+        return "Este usuario no está autorizado para decidir la elegibilidad final."
+    parts = (body or "").strip().split(maxsplit=2)
+    if len(parts) < 3:
+        return (
+            "Usa `/research resolve DOI include|exclude MOTIVO`. "
+            "La justificación científica es obligatoria."
+        )
+    doi, raw_decision, reason = parts
+    decision_map = {
+        "include": "include",
+        "incluir": "include",
+        "seguir": "include",
+        "continue": "include",
+        "exclude": "exclude",
+        "excluir": "exclude",
+        "rechazar": "exclude",
+        "reject": "exclude",
+    }
+    decision = decision_map.get(raw_decision.strip().lower(), "")
+    if not decision:
+        return "La decisión debe ser `include` o `exclude`."
+    review_dir = _resolve_review(binding_key, "")
+    if review_dir is None:
+        return "No encuentro ninguna revisión ligada a este chat."
+    script = runtime.prisma_scripts_dir() / "resolve_screening_disagreement.py"
+    try:
+        output = runtime.run_command_capture(
+            [
+                "python3",
+                str(script),
+                str(review_dir),
+                "--doi",
+                doi,
+                "--decision",
+                decision,
+                "--reason",
+                reason,
+            ],
+            timeout=120,
+        ).strip()
+        status = json.loads(output)
+    except Exception as exc:
+        return f"No se pudo registrar la decisión: {str(exc)[:500]}"
+    unresolved = int(status.get("unresolved") or 0)
+    if unresolved:
+        return (
+            f"Decisión `{decision}` firmada para `{doi}`.\n"
+            f"Quedan {unresolved} discrepancia(s). No se pierde trabajo y el "
+            "ciclo seguirá pausado hasta resolverlas todas.\n\n"
+            "Usa `/research disagreements` para ver la siguiente."
+        )
+    resume_message = _resume_review(binding_key, "")
+    return (
+        f"Decisión `{decision}` firmada para `{doi}`.\n"
+        "Ya no quedan discrepancias: el ciclo se reanuda automáticamente "
+        "desde el checkpoint, sin repetir búsqueda ni juicios A/B.\n\n"
+        f"{resume_message}"
     )
 
 
@@ -358,5 +624,23 @@ def handle_research_command(raw_args: str) -> str:
 
     if subcommand == "resume":
         return _resume_review(binding_key, body)
+
+    if subcommand in {"approve", "aprobar"}:
+        return _adjudicate_review(binding_key, "approved", body)
+
+    if subcommand in {"reject", "rechazar"}:
+        return _adjudicate_review(binding_key, "rejected", body)
+
+    if subcommand in {"disagreements", "discrepancias"}:
+        return _pending_disagreements_summary(binding_key)
+
+    if subcommand in {"resolve", "resolver"}:
+        return _resolve_screening_disagreement(binding_key, body)
+
+    if subcommand in {"changes", "cambios"}:
+        return _pending_change_summary(binding_key)
+
+    if subcommand in {"approve-change", "aprobar-cambio"}:
+        return _approve_protocol_change(binding_key, body)
 
     return _help_text()

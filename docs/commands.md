@@ -6,7 +6,7 @@ internos del gateway original de Hermes.
 
 ## Telegram
 
-Los comandos públicos quedan reducidos a seis:
+Los comandos públicos principales son:
 
 - `/start`
 - `/nueva_revision`
@@ -14,6 +14,8 @@ Los comandos públicos quedan reducidos a seis:
 - `/reanudar`
 - `/cancelar`
 - `/ayuda`
+- `/discrepancias`
+- `/resolver_cribado DOI include|exclude MOTIVO`
 
 ### Qué hace cada uno
 
@@ -33,13 +35,24 @@ el modo avanzado y materializa el protocolo al instante.
 de recordar verbalmente en qué fase se quedó el trabajo.
 
 `/reanudar` relanza una revisión detenida o informa del bloqueo real si existe.
-No obliga al usuario a conocer nombres internos de skills ni scripts.
+No obliga al usuario a conocer nombres internos de skills ni scripts. Si hay
+una discrepancia de texto completo, no la ignora ni fuerza una decisión:
+mantiene el ciclo en pausa hasta que se resuelva.
 
 `/cancelar` borra el wizard de intake en curso para ese chat. No borra una
 revisión que ya haya sido creada.
 
 `/ayuda` resume el formato esperado para el intake y la superficie pública
 disponible.
+
+`/discrepancias` muestra, por DOI, los estudios en los que los dos juicios de
+elegibilidad no coinciden. Incluye el título, la decisión A, la decisión B, la
+recomendación automática no vinculante y sus razones.
+
+`/resolver_cribado DOI include|exclude MOTIVO` registra una decisión científica
+firmada. Si quedan más casos, la revisión continúa pausada; cuando se resuelve
+el último, se reanuda automáticamente desde el checkpoint. Los alias avanzados
+son `/research disagreements` y `/research resolve`.
 
 ## CLI
 
@@ -70,6 +83,10 @@ Subcomandos actuales:
 - `run`
 - `resume`
 - `package`
+- `adjudicate`
+- `amendment`
+- `disagreements`
+- `resolve-screening`
 
 ### Qué problema resuelve cada bloque
 
@@ -120,3 +137,12 @@ sin inventar un tamaño final exacto antes de buscar.
 `init` también admite `validation_mode` en un bloque de intake avanzado:
 `autonomous`, `assisted` o `adjudicated`. En modo adjudicado, el gate exige un
 registro humano de aprobación antes de cerrar.
+
+`adjudicate` firma la aprobación o rechazo final cuando el contrato de la
+revisión exige validación humana. `amendment` permite inspeccionar y aprobar una
+modificación material del protocolo antes de aplicarla.
+
+`disagreements REVIEW` lista conflictos de elegibilidad a texto completo.
+`resolve-screening REVIEW --doi DOI --decision include|exclude --reason MOTIVO`
+firma una decisión. El comando reanuda el ciclo únicamente después del último
+caso pendiente.

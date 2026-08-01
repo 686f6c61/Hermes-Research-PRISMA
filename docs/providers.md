@@ -3,6 +3,21 @@
 Hermes Research Pack no está ligado a una marca. Usa una API compatible con el
 contrato de OpenAI para listar modelos y ejecutar inferencia.
 
+El desarrollo y las pruebas de carga, incluidos ciclos de millones de tokens,
+se han ejecutado con NaN.builders como entorno OpenAI-compatible de referencia.
+Su tarifa plana no factura por token y los modelos del clúster no tienen tope
+de uso; los modelos frontera pueden disponer de una asignación mensual propia.
+Esto documenta dónde se ha probado el volumen, pero no convierte el proveedor
+en dependencia.
+
+Para usar el mismo entorno:
+
+[Crear cuenta en NaN.builders](https://cloud.nan.builders/r/EQJ5SRFA)
+
+La alternativa es un endpoint de inferencia multimodal local u otro proveedor
+OpenAI-compatible. Todos deben superar las mismas pruebas de capacidad; un
+modelo local no se acepta únicamente porque el catálogo declare soporte visual.
+
 ## Contrato mínimo
 
 Configura:
@@ -55,5 +70,7 @@ Los PDFs, prompts y fragmentos de evidencia pueden salir del host hacia el
 proveedor. Antes de usar un corpus sensible, revisa su política de retención,
 región, entrenamiento, confidencialidad y tratamiento de datos.
 
-Define límites de gasto en el proveedor. Los procesos autónomos pueden consumir
-más inferencia de la esperada durante recuperación, reintentos o revisión.
+En proveedores por consumo, define límites de gasto. En NaN.builders, registra
+el uso para detectar ineficiencias y controlar las asignaciones de los modelos
+frontera aunque la tarifa no facture por token. En inferencia local, vigila
+memoria, temperatura, disponibilidad y rendimiento sostenido del host.

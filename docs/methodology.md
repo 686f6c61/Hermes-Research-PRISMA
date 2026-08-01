@@ -41,6 +41,25 @@ Las salidas de screening no se quedan en una conversación. Se vuelcan a CSV y
 se vuelven a leer después para recomputar conteos, auditar exclusiones y
 reanudar el trabajo sin depender de memoria verbal.
 
+El cribado usa dos juicios automáticos independientes. En título y resumen, un
+desacuerdo conserva el registro como `maybe` para evitar una exclusión
+prematura. En texto completo, el sistema añade una tercera recomendación
+automática, pero esa recomendación es informativa y no toma la decisión final.
+
+Si A y B discrepan, la ejecución entra en `waiting_for_researcher`. No es un
+fallo ni un "hasta aquí he llegado": búsqueda, descargas, protocolo, decisiones
+A/B, recomendación y conteos quedan guardados. La persona investigadora recibe
+el DOI, el título, ambos juicios y la recomendación, y decide `include` o
+`exclude` con una razón científica. La decisión queda firmada con la identidad
+configurada y vinculada al caso exacto, al protocolo congelado y al texto
+completo analizado.
+
+La ejecución solo se reanuda cuando no quedan discrepancias sin resolver. La
+reanudación reutiliza `full-text-review-checkpoint.json`, por lo que no repite
+búsqueda, descarga ni juicios A/B si el protocolo y la evidencia no han
+cambiado. Los casos ya resueltos también se conservan: una caída posterior no
+puede obligar a decidirlos de nuevo ni sustituirlos por otra salida del modelo.
+
 ### 5. Cierre editorial duro
 
 Una revisión no queda cerrada solo porque exista un manuscrito en Markdown. El
@@ -107,8 +126,15 @@ se reporta como exploratoria y no como escuela consolidada.
 Los corpus golden separan tres problemas: clasificación de inclusión/exclusión,
 extracción de campos y localización de evidencia. El informe produce matriz de
 confusión, precisión, recall, F1, especificidad, exactitud por campo y análisis
-de errores. Las fixtures sintéticas solo validan el software de evaluación; la
-afirmación de rendimiento exige conjuntos gold adjudicados por dominio.
+de errores.
+
+Cada revisión genera además un conjunto de referencia operacional a partir de
+consensos automáticos, recomendaciones y decisiones firmadas. Sirve para
+regresión, repetibilidad y detección de cambios del harness, pero se etiqueta
+expresamente como `external_human_ground_truth: false`. Las fixtures sintéticas
+solo validan el software de evaluación y una afirmación externa de rendimiento
+científico exige un conjunto independiente adjudicado por especialistas del
+dominio.
 
 ## Qué intenta reducir este enfoque
 
@@ -116,6 +142,8 @@ afirmación de rendimiento exige conjuntos gold adjudicados por dominio.
 - duplicados silenciosos
 - inclusiones sin full text
 - pérdida de contexto tras una interrupción
+- exclusiones terminales cuando dos juicios no coinciden
+- repetición del trabajo tras una pausa de decisión
 - cierres falsos sin paquete publicable
 - afirmaciones sin fragmento o página verificable
 - sustitución silenciosa de modelos por el proveedor
