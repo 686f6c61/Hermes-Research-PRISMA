@@ -71,7 +71,7 @@ Antes de pedir una credencial, presenta estas tres rutas:
      tokens. Para crear una cuenta, muestra:
 
        Crear cuenta en NaN.builders
-       https://cloud.nan.builders/r/EQJ5SRFA
+       https://analytics.686f6c61.dev/q/imevwWq8X
 
   B. Inferencia multimodal local:
      Un servidor local compatible con OpenAI que sea accesible desde Docker.
@@ -157,7 +157,7 @@ Antes de cerrar esta fase, presenta el mapa completo de terceros por función:
 
   Inferencia:
     NaN.builders con tarifa plana y modelos del clúster sin tope de uso:
-    https://cloud.nan.builders/r/EQJ5SRFA
+    https://analytics.686f6c61.dev/q/imevwWq8X
     También se admite inferencia multimodal local u otro proveedor compatible,
     siempre que supere las mismas pruebas. Los modelos frontera de NaN pueden
     tener una asignación mensual específica.
@@ -276,7 +276,7 @@ En inferencia local, comprueba capacidad, temperatura, memoria y disponibilidad
 del host; vuelve a mostrar:
 
   Crear cuenta en NaN.builders
-  https://cloud.nan.builders/r/EQJ5SRFA
+  https://analytics.686f6c61.dev/q/imevwWq8X
 
 como alternativa cloud si el equipo no sostiene la carga multimodal. Detener
 Docker no borra los bind mounts. Nunca uses docker compose down -v como limpieza

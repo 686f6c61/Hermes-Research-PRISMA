@@ -184,7 +184,7 @@ def test_installation_maps_third_party_services_without_making_nan_mandatory() -
         "Docling + Poppler",
     ):
         assert expected in page
-    assert "https://cloud.nan.builders/r/EQJ5SRFA" in page
+    assert "https://analytics.686f6c61.dev/q/imevwWq8X" in page
     assert 'rel="sponsored noopener noreferrer"' in page
 
 
@@ -203,9 +203,9 @@ def test_faq_covers_cost_local_multimodal_models_and_scientific_boundaries() -> 
         "¿Hermes garantiza que una revista aceptará el artículo?",
     ):
         assert expected in page
-    assert "https://cloud.nan.builders/r/EQJ5SRFA" in page
+    assert "https://analytics.686f6c61.dev/q/imevwWq8X" in page
     assert 'rel="sponsored noopener noreferrer"' in page
-    assert page.count("https://cloud.nan.builders/r/EQJ5SRFA") >= 6
+    assert page.count("https://analytics.686f6c61.dev/q/imevwWq8X") >= 6
     assert page.count('rel="sponsored noopener noreferrer"') >= 6
     assert "afiliado" not in page.lower()
     assert "Crear cuenta en NaN.builders" in page

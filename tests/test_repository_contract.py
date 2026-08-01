@@ -47,7 +47,7 @@ def test_setup_guide_has_the_exact_public_name_and_acceptance_contract() -> None
         "TELEGRAM_ALLOWED_USERS",
         "HERMES_UNPAYWALL_EMAIL",
         "HERMES_LENS_API_KEY",
-        "https://cloud.nan.builders/r/EQJ5SRFA",
+        "https://analytics.686f6c61.dev/q/imevwWq8X",
         "Crear cuenta en NaN.builders",
         "tarifa es plana",
         "Inferencia multimodal local",

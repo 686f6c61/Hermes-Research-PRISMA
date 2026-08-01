@@ -12,7 +12,7 @@ en dependencia.
 
 Para usar el mismo entorno:
 
-[Crear cuenta en NaN.builders](https://cloud.nan.builders/r/EQJ5SRFA)
+[Crear cuenta en NaN.builders](https://analytics.686f6c61.dev/q/imevwWq8X)
 
 La alternativa es un endpoint de inferencia multimodal local u otro proveedor
 OpenAI-compatible. Todos deben superar las mismas pruebas de capacidad; un
