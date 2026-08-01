@@ -29,6 +29,11 @@ El paquete no considera “incluido” un estudio solo porque el abstract parezc
 prometedor. Para entrar en el corpus final, la revisión necesita evidencia de
 texto completo legible y útil.
 
+La descarga forma parte del método y de la seguridad. Cada URL y redirección se
+valida contra destinos privados, esquemas y puertos no autorizados; el archivo
+debe respetar tamaño, tipo y cabecera PDF. Un HTML de login guardado con
+extensión `.pdf` no cuenta como texto completo.
+
 La lectura se hace en dos niveles. `pdftotext` mantiene una ruta rápida y
 determinista. Docling añade una lectura estructural del subconjunto focal:
 orden de lectura, OCR, tablas y figuras. Esta segunda capa no decide inclusión,
@@ -91,6 +96,11 @@ El intake no queda solo en prosa. La ejecución genera cinco contratos:
 `protocol/contracts-manifest.json` registra hashes de esos contratos y
 `protocol/amendments.jsonl` conserva desviaciones posteriores. El N final se
 trata como rango deseado, nunca como cuota de inclusión.
+
+Una desviación material no se aplica por conveniencia del pipeline. Se escribe
+como propuesta, explica qué contrato cambia y espera aprobación investigadora
+firmada. Así se distingue una corrección operativa de una redefinición
+post-hoc de la pregunta, los criterios o la síntesis.
 
 ### 7. Afirmaciones enlazadas con evidencia
 

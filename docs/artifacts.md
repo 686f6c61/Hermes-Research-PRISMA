@@ -24,6 +24,7 @@ Después de crear una revisión nueva deberían aparecer muy pronto:
 - `protocol/deliverables-contract.json`
 - `protocol/contracts-manifest.json`
 - `protocol/amendments.jsonl`
+- `protocol/pending-amendment.json`, solo mientras una propuesta espera decisión
 - `notes/runtime-state.json`
 
 Estos archivos fijan el alcance y permiten releer el estado sin depender del
@@ -112,7 +113,7 @@ Cuando la capa editorial termina bien, deberían existir:
 
 El ZIP de publicación abre también con `index.html`. Sus anexos eliminan
 `record_id`, convierten `assigned_doi` en `doi`, sustituyen nombres de PDF
-internos por DOI y sanea rutas locales. Los registros sin DOI pueden conservarse
+internos por DOI y sanean rutas locales. Los registros sin DOI pueden conservarse
 en conteos de exclusión, pero no reciben una identidad pública opaca.
 
 El directorio `paper/audit/gold/` contiene la referencia operacional generada

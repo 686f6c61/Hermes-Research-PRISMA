@@ -76,8 +76,10 @@ Después solicita:
 10. usuarios autorizados y chat privado de avisos.
 
 La identidad firma adjudicaciones y cambios de protocolo; no se inventa a
-partir del manuscrito. Los secretos de firma no se muestran y `.env` queda con
-permisos `0600`.
+partir del manuscrito. `setup` genera secretos independientes para firmas y
+Docling, no los muestra y deja `.env` con permisos `0600`. Conserva ese archivo
+en un gestor de secretos: regenerar `HERMES_ADJUDICATION_SECRET` puede
+invalidar decisiones ya firmadas.
 
 ## Telegram
 
@@ -105,7 +107,7 @@ asistente también permite configurar:
 - email de Unpaywall para localizar texto completo abierto;
 - API key opcional de Semantic Scholar;
 - API key opcional de Lens Scholarly;
-- email y API key opcional de NCBI/PubMed.
+- email y API key opcional de NCBI/PubMed;
 - credenciales opcionales de Scopus, Web of Science, Embase e IEEE Xplore.
 
 Una credencial ausente no se inventa ni bloquea fuentes independientes: la
@@ -137,13 +139,15 @@ Para un host limitado:
 
 ```bash
 ./hermes-research smoke-test
+./hermes-research capability-test
 ./hermes-research multimodal-test
 ./hermes-research docling-test
 ```
 
-`smoke-test` es obligatorio. Los otros dos validan visión y extracción
-estructurada. No inicies un corpus costoso si el diagnóstico o el smoke test
-fallan.
+`smoke-test` es obligatorio. `capability-test` prueba texto, JSON e identidad
+efectiva de los modelos; `multimodal-test` valida visión y `docling-test`
+comprueba extracción estructurada. No inicies un corpus costoso si falla una
+capacidad que vaya a usar el protocolo.
 
 El smoke test usa un modo interno acotado: consulta OpenAlex y Crossref, escribe
 registros reales y termina antes del cribado intensivo. No deja una revisión
@@ -186,6 +190,8 @@ export HERMES_CONTACT_EMAIL=research-api@example.org
 export HERMES_UNPAYWALL_EMAIL=research-api@example.org
 export HERMES_RESEARCHER_NAME='Research Owner'
 export HERMES_RESEARCHER_EMAIL=owner@example.org
+export HERMES_ADJUDICATION_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+export HERMES_DOCLING_API_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 ./hermes-research setup --non-interactive
 ```
 
@@ -193,8 +199,10 @@ En modo Telegram también debes exportar `TELEGRAM_BOT_TOKEN`,
 `TELEGRAM_ALLOWED_USERS`, `TELEGRAM_HOME_CHANNEL` y
 `TELEGRAM_PRISMA_CHAT_ID`.
 
-Usa un gestor de secretos del host o del CI. No guardes esos `export` en el
-historial, documentación o repositorio.
+Estos comandos generan los dos secretos localmente sin imprimirlos. El texto
+del comando puede quedar en el historial, pero no los valores resultantes.
+Entrégalos mediante el gestor de secretos del host o del CI y nunca los
+incorpores a documentación o repositorios.
 
 ## Desinstalación
 

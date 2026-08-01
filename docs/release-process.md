@@ -43,7 +43,8 @@ Para la versión `X.Y.Z` se generan:
 3. Ejecuta `make check`, `make plugin-only` y
    `REQUIRE_CLEAN_RELEASE=1 ./hermes-research ship-release`.
 4. Revisa que el informe corregible tenga cero hallazgos.
-5. Crea y sube un tag firmado `vX.Y.Z`.
+5. Crea y sube un tag anotado `vX.Y.Z`; si el repositorio exige firma
+   criptográfica, aplica además su política de tags firmados.
 6. El workflow `Release` repite las pruebas y publica ZIP, SHA-256, SBOM e informe.
 7. Verifica la descarga publicada y vuelve a calcular el checksum.
 8. Instala ese archivo descargado en una máquina limpia.

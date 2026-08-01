@@ -765,7 +765,10 @@ Use these as companions, not replacements for traceability:
 
 ## Model Policy
 
-- This Hermes deployment is cloud-only: do not route research calls to `localhost`, `127.0.0.1`, or `host.docker.internal`.
+- Cloud and local OpenAI-compatible endpoints are supported. From the Hermes
+  container, never use `localhost` or `127.0.0.1` for a host-side inference
+  service; configure a routable, access-controlled Docker host or network
+  address and prove it with the capability tests.
 - Public provider contract: an OpenAI-compatible `/v1` endpoint configured with
   `HERMES_INFERENCE_BASE_URL` and `HERMES_INFERENCE_API_KEY`.
 - Primary model: read from `HERMES_MODEL_PRIMARY` for search planning,

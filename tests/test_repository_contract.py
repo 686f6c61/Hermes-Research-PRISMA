@@ -38,7 +38,7 @@ def test_setup_guide_has_the_exact_public_name_and_acceptance_contract() -> None
     assert not (ROOT / ("Set" + "ip_Hermes.txt")).exists()
     guide = guide_path.read_text(encoding="utf-8")
     for expected in (
-        "HERMES RESEARCH PACK 0.5.0",
+        "HERMES RESEARCH PACK 0.5.1",
         "./hermes-research setup",
         "./hermes-research doctor",
         "./hermes-research capability-test",

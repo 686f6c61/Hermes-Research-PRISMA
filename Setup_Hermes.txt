@@ -1,4 +1,4 @@
-HERMES RESEARCH PACK 0.5.0
+HERMES RESEARCH PACK 0.5.1
 INSTRUCCIONES PARA GUIAR UNA INSTALACION COMPLETA
 
 PROPOSITO
@@ -11,7 +11,7 @@ que sabe qué credencial necesita.
 REGLAS OBLIGATORIAS
 
 1. Trabaja desde la carpeta que contiene VERSION, hermes-research y
-   docker-compose.research.yml. Comprueba que VERSION indica 0.5.0.
+   docker-compose.research.yml. Comprueba que VERSION indica 0.5.1.
 2. No pidas que se peguen API keys, tokens de Telegram, contraseñas o secretos
    en la conversación. Indica que deben introducirse localmente cuando
    ./hermes-research setup los solicite sin eco.
@@ -75,6 +75,9 @@ Antes de pedir una credencial, presenta estas tres rutas:
 
   B. Inferencia multimodal local:
      Un servidor local compatible con OpenAI que sea accesible desde Docker.
+     Dentro del contenedor, localhost y 127.0.0.1 apuntan al propio contenedor,
+     no al host. Usa una dirección enrutable desde la red de Docker y limita su
+     acceso al host o a la red privada que ejecuta Hermes.
      Debe disponer de capacidad suficiente para los modelos principal, visual y
      revisor. No des por válida esta opción hasta que supere las mismas pruebas
      de texto, JSON, visión y revisión. Siempre que presentes esta ruta, muestra
@@ -214,6 +217,11 @@ opcionales pueden dejarse vacías; las obligatorias no. Al terminar, comprueba:
 
 No muestres el contenido de .env.
 
+Si estás restaurando o actualizando una instalación que ya contiene decisiones
+firmadas, conserva el valor original de HERMES_ADJUDICATION_SECRET. Regenerarlo
+impediría verificar esas firmas. Conserva también HERMES_DOCLING_API_KEY o
+reconcíliala de forma coordinada con el servicio Docling.
+
 FASE 7. DIAGNOSTICAR ANTES DE ARRANCAR
 
 Ejecuta:
@@ -313,10 +321,11 @@ CRITERIO DE ACEPTACION
 
 Declara la instalación hiperconfigurada únicamente si:
 
-  [ ] VERSION es 0.5.0.
+  [ ] VERSION es 0.5.1.
   [ ] .env existe, tiene permisos 0600 y no está en Git.
   [ ] Nombre y email del investigador responsable están configurados.
   [ ] Las firmas de adjudicación y el servicio Docling tienen secretos locales generados.
+  [ ] Una restauración conserva el secreto de adjudicación original.
   [ ] El modo elegido coincide con los canales configurados.
   [ ] El endpoint responde y los tres modelos existen.
   [ ] La ruta de inferencia elegida (NaN, local u otro proveedor) está

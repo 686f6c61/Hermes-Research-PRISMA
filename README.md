@@ -266,7 +266,7 @@ revisión reproducible, cita la versión exacta y conserva también el
 
 ## Compatibilidad y licencia
 
-La versión `0.5.0` está fijada a Hermes Agent `v2026.7.20`, commit
+La versión `0.5.1` está fijada a Hermes Agent `v2026.7.20`, commit
 `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. No se recomienda mezclar el
 plugin con otra versión de Hermes sin ejecutar la matriz completa de pruebas.
 

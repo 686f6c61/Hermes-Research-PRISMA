@@ -35,11 +35,18 @@ Los nombres cambian entre proveedores. Consulta su catálogo y vuelve a ejecutar
 Comprueba el modo en `.env`, el token y los logs:
 
 ```bash
+./hermes-research doctor
 ./hermes-research logs --tail 300
 ```
 
 Un token de Telegram solo admite un consumidor de polling activo. Detén otra
 instancia que use el mismo bot o crea un bot dedicado.
+
+Un `401` en `getMe` significa que el token es inválido o fue revocado. Vuelve a
+ejecutar `setup` y escríbelo localmente sin pegarlo en un issue. Un `409`
+normalmente indica que otro proceso está usando polling. Si Telegram aún no se
+ha configurado, usa `HERMES_INSTALL_MODE=cli`; no inventes IDs ni tokens para
+superar `doctor`.
 
 ## El contenedor pertenece a otra instalación
 
@@ -78,6 +85,24 @@ constancia de la reducción en OCR, orden de lectura y tablas.
 No borres `notes/runtime-state.json` ni los CSV para “forzar” el avance. Esos
 archivos permiten distinguir una espera externa, un bloqueo metodológico y una
 fase incompleta.
+
+Si el estado es `waiting_for_researcher`, consulta primero:
+
+```bash
+./hermes-research disagreements <review>
+./hermes-research amendment <review>
+```
+
+Las discrepancias se resuelven con `resolve-screening` por DOI. Una propuesta
+de cambio se inspecciona con `amendment` y solo se firma con `--approve` y una
+razón. El watchdog no debe cruzar ninguno de esos límites.
+
+## Una decisión firmada deja de validar
+
+Comprueba si se restauró el mismo `HERMES_ADJUDICATION_SECRET`. Generar un valor
+nuevo cambia la clave de verificación y no debe usarse para reinterpretar
+firmas anteriores. Recupera el secreto original desde el gestor de secretos y
+vuelve a ejecutar `doctor`; no edites el JSONL ni recalcules firmas a mano.
 
 ## Las figuras o tablas salen mal en el PDF
 

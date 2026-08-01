@@ -11,7 +11,8 @@ lícito.
 - Los fragmentos y páginas necesarias pueden enviarse al proveedor de modelos.
 - Telegram recibe los mensajes de intake si se usa ese modo.
 - Las fuentes bibliográficas reciben consultas y metadatos técnicos.
-- Docling procesa localmente dentro de Compose y no publica puerto.
+- Docling procesa localmente dentro de Compose, autentica las llamadas internas
+  y no publica puerto.
 - Obsidian es un directorio local salvo que la persona lo sincronice fuera.
 
 ## Antes de investigar
@@ -32,6 +33,11 @@ Documenta:
 No envíes un PDF completo al modelo si bastan páginas identificadas. No guardes
 tokens en logs. No publiques correos de autores extraídos. No redistribuyas el
 corpus dentro del ZIP del programa o del manuscrito.
+
+Los registros de discrepancias y cambios de protocolo contienen identidad,
+razón científica y firmas verificables. Permanecen en el workspace privado; el
+paquete público conserva la decisión metodológica necesaria, no el secreto ni
+identificadores internos.
 
 Para datos sensibles, usa un proveedor con garantías contractuales adecuadas o
 una infraestructura autorizada. El modo CLI evita Telegram, pero no evita la

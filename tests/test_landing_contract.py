@@ -64,7 +64,7 @@ def test_landing_links_to_the_installation_guide() -> None:
 
 
 def test_public_pages_link_to_the_versioned_public_release() -> None:
-    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.5.0"
+    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.5.1"
     assert release_url in _read("index.html")
     assert release_url in _read("instalacion.html")
     assert release_url in _read("entregables.html")
@@ -84,8 +84,8 @@ def test_every_public_page_displays_the_current_version_in_header_and_footer() -
         page = _read(name)
         header = page.split('<header class="site-header">', 1)[1].split("</header>", 1)[0]
         footer = page.split('<footer class="site-footer">', 1)[1].split("</footer>", 1)[0]
-        assert "0.5.0" in header
-        assert "0.5.0" in footer
+        assert "0.5.1" in header
+        assert "0.5.1" in footer
 
 
 def test_methodology_and_delivery_pages_explain_the_new_contracts() -> None:
@@ -137,9 +137,7 @@ def test_social_cards_are_current_page_specific_and_release_ready() -> None:
 
     for page_name, image_name in cards.items():
         page = _read(page_name)
-        expected_cache_key = (
-            "20260801-1" if page_name == "confianza.html" else "20260731-5"
-        )
+        expected_cache_key = "20260801-051"
         assert f"/assets/images/{image_name}?v={expected_cache_key}" in page
         image = LANDING / "assets" / "images" / image_name
         payload = image.read_bytes()
@@ -251,7 +249,7 @@ def test_contact_requires_four_interactions_and_is_not_static_plaintext() -> Non
         assert "data-contact-gate" in page
         assert "data-contact-trigger" in page
         assert "<small>4 pasos</small>" in page
-        assert "/script.js?v=20260801-2" in page
+        assert "/script.js?v=20260801-051" in page
 
     styles = _read("styles.css")
     assert ".contact-gate {" in styles

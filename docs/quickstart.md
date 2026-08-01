@@ -40,6 +40,8 @@ permisos `0600` y no se incluye en Git ni en los ZIP.
 ```bash
 ./hermes-research up
 ./hermes-research smoke-test
+./hermes-research capability-test
+./hermes-research multimodal-test
 ```
 
 `up` ejecuta primero `doctor`. Si el endpoint no responde o un modelo no existe,
@@ -101,12 +103,16 @@ rechazado el estudio. Revisa los dos juicios y la recomendación no vinculante:
   --reason "Razón científica vinculada al protocolo"
 ```
 
-El ciclo se reanuda automáticamente tras resolver el último DOI.
+El ciclo se reanuda automáticamente tras resolver el último DOI. Si existe un
+cambio material del protocolo, inspecciónalo antes de aprobarlo:
+
+```bash
+./hermes-research amendment <review>
+```
 
 ## 6. Comprueba PDF y paquete final
 
 ```bash
-./hermes-research multimodal-test
 ./hermes-research docling-test
 ./hermes-research package
 ```

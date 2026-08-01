@@ -19,6 +19,10 @@ En Telegram, la entrada pública queda reducida a:
 - `/cancelar`
 - `/ayuda`
 
+Las discrepancias de texto completo añaden `/discrepancias` y
+`/resolver_cribado`, pero solo como acciones contextuales. No aparecen en el
+menú de trabajo diario.
+
 `/nueva_revision` no exige que la persona conozca la estructura interna del
 intake: abre un wizard pregunta a pregunta, conserva estado por chat y solo
 crea la revisión cuando recibe la confirmación `crear`. El bloque completo de
@@ -85,16 +89,25 @@ búsquedas, screening, full text y extracción. Una fase estructural separada
 construye redes de autoría, temas, referencias y evidencia con cobertura y
 parámetros explícitos. La síntesis y publicación consumen esos artefactos sin
 permitir que centralidad, citas o productividad cambien la selección. El
-watchdog relanza fases paradas y el gate decide si la revisión puede
-considerarse cerrada.
+watchdog relanza fases técnicas paradas con intentos y backoff acotados, pero
+nunca atraviesa una decisión investigadora. El gate decide si la revisión
+puede considerarse cerrada.
+
+El cribado de texto completo produce dos juicios independientes. Si discrepan,
+una recomendación automática organiza la evidencia, pero la revisión entra en
+`waiting_for_researcher`. La decisión final se firma por DOI y protocolo; al
+resolver el último caso, el ciclo reutiliza el checkpoint en lugar de repetir
+búsqueda, descarga y lectura.
 
 ### 5. Extracción documental estructurada
 
-El PDF sigue entrando primero por la ruta rápida de texto. Cuando Docling está
-disponible, el subconjunto focal recibe una segunda lectura estructural que
-reconstruye orden de lectura, tablas, figuras y OCR. El gateway no instala
-PyTorch: envía el PDF al servicio interno y recibe JSON y Markdown. Cada
-resultado queda cacheado por hash del PDF y solo se acepta con DOI.
+El PDF sigue entrando primero por la ruta rápida de texto. La descarga rechaza
+destinos privados, redirecciones inseguras, tipos incompatibles, tamaños
+excesivos y archivos sin cabecera PDF. Cuando Docling está disponible, el
+subconjunto focal recibe una segunda lectura estructural que reconstruye orden
+de lectura, tablas, figuras y OCR. El gateway no instala PyTorch: envía el PDF
+al servicio interno autenticado y recibe JSON y Markdown. Cada resultado queda
+cacheado por hash del PDF y solo se acepta con DOI.
 
 Una caída o un timeout de Docling no detiene la revisión. El manifiesto registra
 el fallo y `publication_audit.py` conserva la extracción Poppler como fallback.

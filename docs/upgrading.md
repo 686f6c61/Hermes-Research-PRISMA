@@ -20,14 +20,19 @@ Agent sin reemplazar módulos de su núcleo.
 
 1. Verifica el checksum del nuevo ZIP.
 2. Descomprime en una carpeta nueva.
-3. Copia o restaura los bind mounts; no sobrescribas la copia de seguridad.
-4. Ejecuta `./hermes-research setup`.
+3. Copia o restaura los bind mounts y el `.env` original; no sobrescribas la
+   copia de seguridad ni regeneres el secreto de adjudicación.
+4. Ejecuta `./hermes-research setup` solo para reconciliar campos nuevos,
+   conservando los valores privados existentes.
 5. Ejecuta `HERMES_REFRESH_RUNTIME_HOME=1 bash install.sh` solo cuando las
    notas indiquen que la semilla debe actualizarse.
 6. Ejecuta `./hermes-research doctor`.
 7. Ejecuta `./hermes-research up`.
 8. Ejecuta `./hermes-research smoke-test`.
-9. Comprueba una revisión existente con `status` antes de reanudarla.
+9. Ejecuta `capability-test` y `multimodal-test` si cambia proveedor, modelo o
+   runtime.
+10. Comprueba una revisión existente con `status`, `disagreements` y
+    `amendment` antes de reanudarla.
 
 ## Retroceso
 

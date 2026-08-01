@@ -14,6 +14,17 @@ estado material y debe preferirse a ejecutar scripts internos:
 ./hermes-research resume
 ```
 
+Si el estado es `waiting_for_researcher`, no ejecutes reintentos repetidos.
+Consulta el bloqueo material:
+
+```bash
+./hermes-research disagreements <review>
+./hermes-research amendment <review>
+```
+
+El primer comando muestra conflictos de elegibilidad; el segundo, una posible
+modificación material del protocolo. Ninguno aprueba por sí solo.
+
 ## Inicio y parada
 
 ```bash
@@ -46,19 +57,21 @@ tar -czf hermes-workspace-backup.tar.gz runtime/workspace runtime/hermes-home
 
 Protege el archivo como datos de investigación. `runtime/workspace` contiene
 corpus, decisiones y manuscritos. `runtime/hermes-home` contiene estado,
-bindings y configuración operativa, pero `.env` debe respaldarse por separado
-en un gestor de secretos.
+bindings y configuración operativa. `.env` debe respaldarse por separado en un
+gestor de secretos: contiene la clave que permite verificar adjudicaciones
+existentes y la autenticación interna de Docling.
 
 ## Restauración
 
 1. Instala la misma versión del paquete.
 2. Restaura `runtime/workspace` y `runtime/hermes-home`.
-3. Ejecuta `./hermes-research setup` para recrear `.env`.
+3. Restaura el `.env` original desde el gestor de secretos.
 4. Ejecuta `./hermes-research doctor`.
 5. Levanta con `./hermes-research up`.
 6. Revisa `status` antes de `resume`.
 
-No restaures una semilla antigua sobre un runtime nuevo sin leer
+No regeneres `HERMES_ADJUDICATION_SECRET` si existen decisiones firmadas. No
+restaures una semilla antigua sobre un runtime nuevo sin leer
 `docs/upgrading.md`.
 
 ## Capacidad

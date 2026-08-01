@@ -14,7 +14,15 @@ ejecución real de las skills research.
 ### `hermes-prisma-watchdog`
 
 Es el proceso de continuidad. Relee el estado material de las revisiones y
-reintenta las que se quedan paradas sin depender de intervención humana.
+reintenta las que se quedan paradas sin depender de memoria conversacional.
+Los reintentos son acotados y nunca sustituyen una adjudicación, una
+discrepancia o un cambio de protocolo pendientes.
+
+### `hermes-docling`
+
+Es el worker documental opcional. Reconstruye orden de lectura, OCR, tablas y
+figuras en una red interna autenticada. No busca estudios, no decide
+elegibilidad y no recibe acceso al gateway de Telegram.
 
 ## Agentes funcionales del flujo research
 
@@ -28,6 +36,18 @@ materializada con protocolo, estructura de carpetas y estado inicial.
 Vive principalmente en `complete_review.py`. Controla adquisición,
 deduplicación, cribado, full text, extracción, shortlist y transición a la
 capa editorial.
+
+### Revisores de elegibilidad
+
+Emiten dos juicios separados para título/resumen y texto completo. En texto
+completo, una tercera salida puede recomendar una resolución, pero no puede
+convertir un desacuerdo en exclusión final.
+
+### Decisión investigadora
+
+No es otro modelo. Es la frontera humana que resuelve discrepancias por DOI,
+aprueba cambios materiales del protocolo o firma el cierre cuando el contrato
+de validación lo exige. La identidad y la razón quedan ligadas al caso exacto.
 
 ### Revisor editorial
 
@@ -53,6 +73,7 @@ divide en rutinas con responsabilidad clara:
 
 - una crea
 - otra continúa
+- dos contrastan elegibilidad
 - otra revisa
 - otra audita
 - otra decide el cierre

@@ -17,6 +17,10 @@ Para usar el mismo entorno:
 La alternativa es un endpoint de inferencia multimodal local u otro proveedor
 OpenAI-compatible. Todos deben superar las mismas pruebas de capacidad; un
 modelo local no se acepta únicamente porque el catálogo declare soporte visual.
+Desde el contenedor, `localhost` y `127.0.0.1` apuntan al propio contenedor, no
+al host. Un servidor local debe exponerse mediante una dirección alcanzable
+desde Docker, restringida a la red necesaria y reflejada en
+`HERMES_INFERENCE_BASE_URL`.
 
 ## Contrato mínimo
 

@@ -74,6 +74,21 @@ Los comentarios de código nuevos deben estar en inglés y explicar decisiones,
 invariantes o controles de fallo. Los detalles de uso permanecen en la
 documentación para no convertir los scripts en manuales duplicados.
 
+Antes de una release documental, contrasta además:
+
+- todos los subcomandos de `./hermes-research -h`;
+- todas las variables de `.env.example`;
+- comandos del menú y acciones contextuales de Telegram;
+- artefactos exigidos por los esquemas y el publication gate;
+- restauración de secretos y decisiones firmadas;
+- versión visible en landing, README, issue forms y capturas.
+
+Las imágenes del README deben ser renders de la landing de la misma versión.
+Captura los bloques de producto, entregables, proceso, lectura y agentes a
+anchura de escritorio; revisa que no haya overlays, animaciones a medias,
+texto cortado ni contenido fuera del viewport. Conserva nombres estables en
+`docs/images/` para no romper enlaces históricos del README.
+
 ## Plugin
 
 La integración research debe permanecer fuera del núcleo de Hermes. Antes de

@@ -6,7 +6,7 @@ internos del gateway original de Hermes.
 
 ## Telegram
 
-Los comandos públicos principales son:
+El menú público registra seis comandos:
 
 - `/start`
 - `/nueva_revision`
@@ -14,6 +14,11 @@ Los comandos públicos principales son:
 - `/reanudar`
 - `/cancelar`
 - `/ayuda`
+
+Cuando una revisión espera una decisión investigadora, también están
+disponibles dos comandos bajo demanda. No ocupan el menú habitual porque solo
+son útiles en ese estado:
+
 - `/discrepancias`
 - `/resolver_cribado DOI include|exclude MOTIVO`
 
@@ -130,6 +135,11 @@ para quien publica y valida el paquete.
 `init`, `status`, `run`, `resume` y `package` son la cara CLI del ciclo
 research. Permiten usar el flujo incluso sin Telegram.
 
+`run REVIEW --background` inicia explícitamente una revisión ya creada.
+`resume REVIEW` es la opción habitual después de una interrupción porque relee
+el estado y reutiliza las fases estables. `package REVIEW --autopilot` ejecuta
+la capa editorial antes de volver a construir los entregables.
+
 `init --final-n` acepta un entero o rango inclusivo, por ejemplo `35` o
 `23-63`. El rango permite que una revisión se adapte a la evidencia disponible
 sin inventar un tamaño final exacto antes de buscar.
@@ -141,6 +151,21 @@ registro humano de aprobación antes de cerrar.
 `adjudicate` firma la aprobación o rechazo final cuando el contrato de la
 revisión exige validación humana. `amendment` permite inspeccionar y aprobar una
 modificación material del protocolo antes de aplicarla.
+
+```bash
+./hermes-research adjudicate <review> \
+  --decision approved \
+  --reason "La evidencia, los límites y los entregables han sido revisados."
+
+./hermes-research amendment <review>
+./hermes-research amendment <review> \
+  --approve \
+  --reason "La ampliación conserva la pregunta y mejora la cobertura."
+```
+
+Sin `--approve`, `amendment` solo muestra la propuesta pendiente y su impacto.
+La aprobación firma exactamente esa propuesta; si cambia el contenido, la
+firma anterior no se reutiliza.
 
 `disagreements REVIEW` lista conflictos de elegibilidad a texto completo.
 `resolve-screening REVIEW --doi DOI --decision include|exclude --reason MOTIVO`

@@ -4,6 +4,32 @@ All notable changes to Hermes Research Pack are documented here. The project
 uses semantic versioning for its public wrapper, plugin contract and release
 bundle.
 
+## 0.5.1 - 2026-08-01
+
+### Changed
+
+- Reconciled the README, guided setup, operator guides, plugin policy and
+  quality gate with the behavior shipped in `0.5.0`.
+- Documented authenticated Docling traffic, bounded watchdog retries,
+  protected full-text retrieval, dual screening, signed disagreement
+  resolution, protocol amendments and operational gold datasets as one
+  coherent contract.
+- Clarified that restoring an existing review requires preserving the original
+  adjudication secret; generating a new `.env` can invalidate prior signatures.
+- Clarified cloud and local OpenAI-compatible inference routing from Docker
+  without treating container loopback addresses as host services.
+- Replaced the README product screenshots with reviewed renders of the current
+  landing and documented their product role.
+- Corrected release guidance so it matches the tag checks actually enforced by
+  CI.
+
+### Fixed
+
+- Removed stale `0.4.1` issue-template metadata and contradictory statements
+  about Docling authentication and cloud-only inference.
+- Expanded troubleshooting for Telegram authentication, researcher
+  checkpoints and pending protocol amendments.
+
 ## 0.5.0 - 2026-08-01
 
 ### Added
