@@ -130,6 +130,8 @@ def adaptive_max_tokens(model: str, requested: int, *, minimum: int = 256) -> in
     the final answer appears. The caller remains in control of larger budgets.
     """
     budget = max(int(requested), int(minimum))
+    if os.environ.get("HERMES_REASONING_EFFORT", "").strip().lower() == "none":
+        return budget
     normalized = (model or "").strip().lower()
     if any(hint in normalized for hint in REASONING_MODEL_HINTS):
         budget = max(budget, 1024, int(requested) * 2)

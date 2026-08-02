@@ -33,6 +33,19 @@
       "version": "v2",
       "required_columns": ["assigned_doi", "ultraquality_rank", "ultraquality_score", "score_formula", "selected_for_final_n", "selection_reason"]
     },
+    "analysis/reading-priority.csv": {
+      "version": "v2",
+      "required_columns": ["reading_rank", "doi", "reading_priority_score", "position", "practical_valence", "bibliometric_used_in_score", "eligibility_effect"]
+    },
+    "analysis/evidence/claim-position-matrix.csv": {
+      "version": "v2",
+      "required_columns": ["claim_id", "comparison_key", "raw_comparison", "intervention_family", "outcome_family", "context_family", "doi", "position", "outcome_orientation", "practical_valence", "certainty", "evidence_snippet", "evidence_location"]
+    },
+    "analysis/reproducibility/paper-code-consistency.csv": {
+      "version": "v1",
+      "required": false,
+      "required_columns": ["doi", "repository_url", "audit_mode", "status", "structural_consistency", "code_executed"]
+    },
     "figures/manifest.csv": {
       "version": "v1",
       "required_columns": ["figure_id", "title", "purpose", "svg_path", "png_path", "status"]
@@ -51,6 +64,13 @@
     "protocol/method-contract.json": ["schema_version", "review_mode", "unit_of_comparison", "critical_appraisal"],
     "protocol/synthesis-plan.json": ["schema_version", "unit_of_comparison", "decision_rules"],
     "notes/pipeline-state.json": ["schema_version", "steps", "events"],
+    "notes/artifact-lineage.json": ["schema_version", "run_id", "nodes", "edges", "steps"],
+    "analysis/scientific-intelligence.json": ["schema_version", "positions", "reading_priorities", "bibliometric_used_in_score", "eligibility_effect"],
+    "analysis/evidence/evidence-position-summary.json": ["schema_version", "studies", "comparisons", "comparison_groups", "outcome_domains"],
+    "analysis/reproducibility/paper-code-audit.json": {
+      "required": false,
+      "required_keys": ["schema_version", "optional", "mode", "code_executed", "artifacts"]
+    },
     "screening/screening-reliability.json": ["schema_version", "stages", "interpretation"],
     "screening/full-text-review-checkpoint.json": ["schema_version", "signature", "reviewer_a", "reviewer_b"],
     "screening/pending-disagreements.json": ["schema_version", "status", "message", "cases"],

@@ -36,8 +36,26 @@ if str(PRISMA_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(PRISMA_SCRIPT_DIR))
 
 from network_analysis import build_analysis
+from network_analysis.graph_builder import resolved_keywords
 from network_analysis.io import normalize_label
 from network_analysis.metrics import normalized_mutual_information
+
+
+def test_keyword_resolution_removes_unrelated_ontology_disambiguators() -> None:
+    work = {
+        "keywords": [
+            "Context (archaeology)",
+            "Vulnerability (computing)",
+            "Threat model",
+        ],
+        "concepts": [],
+    }
+
+    labels = resolved_keywords({"keywords_raw": ""}, work)
+
+    assert "Context" not in labels
+    assert "Vulnerability" in labels
+    assert "Threat model" in labels
 from package_publication_bundle import build_bundle
 from review_audit import check_structural_analysis
 from sync_review_to_obsidian import build_structural_atlas_note
@@ -350,6 +368,29 @@ def test_focal_selection_is_constrained_to_included_studies(
     assert coverage["raw_focal_shortlist_count"] == 7
     assert coverage["focal_outside_included_count"] == 1
     assert coverage["focal_outside_included_dois"] == ["10.1000/test11"]
+
+
+def test_explicit_non_selection_is_not_treated_as_focal(
+    tmp_path: pathlib.Path,
+    monkeypatch,
+) -> None:
+    review = build_fixture(tmp_path)
+    shortlist_path = review / "selection" / "ultraquality-shortlist.csv"
+    rows = list(csv.DictReader(shortlist_path.open(encoding="utf-8")))
+    rows[0]["selected_for_final_n"] = "no"
+    rows[0]["decision_before_cap"] = "include"
+    rows[0]["ultraquality_rank"] = "1"
+    write_csv(shortlist_path, list(rows[0]), rows)
+
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1785456000")
+    manifest = build_analysis(review, offline=True)
+    coverage = json.loads(
+        (review / "analysis" / "audit" / "coverage.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["focal_study_count"] == 5
+    assert coverage["raw_focal_shortlist_count"] == 5
+    assert coverage["focal_outside_included_count"] == 0
 
 
 def test_build_analysis_is_reproducible_with_fixed_epoch(tmp_path: pathlib.Path, monkeypatch) -> None:

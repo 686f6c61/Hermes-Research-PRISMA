@@ -88,6 +88,9 @@ Subcomandos actuales:
 - `run`
 - `resume`
 - `package`
+- `intelligence`
+- `code-audit`
+- `memory`
 - `adjudicate`
 - `amendment`
 - `disagreements`
@@ -140,6 +143,14 @@ research. Permiten usar el flujo incluso sin Telegram.
 el estado y reutiliza las fases estables. `package REVIEW --autopilot` ejecuta
 la capa editorial antes de volver a construir los entregables.
 
+`package REVIEW` comprueba además el atlas estructural. Si
+`analysis/atlas/network-atlas.html` falta o es anterior al corpus, cribado,
+extracción o log de búsqueda, reconstruye redes, métricas, GraphML/GEXF y atlas
+offline antes del ZIP. La entrega no puede declarar exploración interactiva
+con cero archivos. El índice del paquete abre también
+`figures/gallery.html`, donde se descargan los PNG a 2400 px y los SVG
+editables.
+
 `init --final-n` acepta un entero o rango inclusivo, por ejemplo `35` o
 `23-63`. El rango permite que una revisión se adapte a la evidencia disponible
 sin inventar un tamaño final exacto antes de buscar.
@@ -147,6 +158,28 @@ sin inventar un tamaño final exacto antes de buscar.
 `init` también admite `validation_mode` en un bloque de intake avanzado:
 `autonomous`, `assisted` o `adjudicated`. En modo adjudicado, el gate exige un
 registro humano de aprobación antes de cerrar.
+
+`intelligence REVIEW` reconstruye la matriz de posiciones de evidencia, el
+mapa de convergencias y desacuerdos y la prioridad de lectura. Esta capa se
+ejecuta automáticamente en el ciclo editorial, pero el comando permite
+recalcularla después de corregir la extracción. La prioridad no altera
+elegibilidad, appraisal ni selección focal: citas, centralidad y PageRank
+tienen peso cero en esas decisiones. Dirección estadística y valor práctico se
+conservan por separado, y los comandos directos actualizan el linaje igual que
+el autopiloto.
+
+`code-audit REVIEW` localiza repositorios declarados por los artículos y crea
+un inventario de reproducibilidad. No clona, instala, importa ni ejecuta código.
+Con `--inspect-remote` consulta metadatos públicos y el árbol del repositorio
+mediante la API de GitHub para comprobar licencia, README, tests, entorno y
+señales de archivo o datos; `--max-papers N` limita el coste. `GITHUB_TOKEN` es
+opcional y solo amplía el límite de consultas.
+
+`memory REVIEW` actualiza un catálogo privado entre revisiones y genera un
+contexto de partida con consultas, DOI, constructos y decisiones anteriores.
+Ese contexto evita repetir trabajo, pero nunca hereda una decisión de
+inclusión: cada revisión vuelve a aplicar su propio protocolo. El catálogo, el
+contexto y el paso `research_memory` quedan fuera del ZIP y del linaje público.
 
 `adjudicate` firma la aprobación o rechazo final cuando el contrato de la
 revisión exige validación humana. `amendment` permite inspeccionar y aprobar una
@@ -171,3 +204,10 @@ firma anterior no se reutiliza.
 `resolve-screening REVIEW --doi DOI --decision include|exclude --reason MOTIVO`
 firma una decisión. El comando reanuda el ciclo únicamente después del último
 caso pendiente.
+
+```bash
+./hermes-research intelligence <review>
+./hermes-research code-audit <review>
+./hermes-research code-audit <review> --inspect-remote --max-papers 20
+./hermes-research memory <review>
+```

@@ -97,6 +97,13 @@ El intake no queda solo en prosa. La ejecución genera cinco contratos:
 `protocol/amendments.jsonl` conserva desviaciones posteriores. El N final se
 trata como rango deseado, nunca como cuota de inclusión.
 
+La preselección focal se congela antes de la extracción profunda con señales
+comparables disponibles para todos los textos completos: relevancia, calidad
+metodológica y representatividad. Una ficha ya enriquecida no puede desplazar a
+otra todavía no extraída por el simple orden de ejecución o por una
+reanudación. La confianza de extracción activa revisión y cautela, pero no
+reescribe retrospectivamente la frontera focal.
+
 Una desviación material no se aplica por conveniencia del pipeline. Se escribe
 como propuesta, explica qué contrato cambia y espera aprobación investigadora
 firmada. Así se distingue una corrección operativa de una redefinición
@@ -118,6 +125,28 @@ comparación, las fuentes, el appraisal, las tablas mínimas, las figuras útile
 las condiciones de síntesis. El perfil evita aplicar una gramática biomédica a
 una pregunta social o reducir una revisión técnica a frecuencias documentales.
 
+Dentro del perfil técnico, las preguntas sobre seguridad de modelos o agentes
+activan una extracción especializada. Una defensa no se considera superior por
+reducir una tasa de ataque aislada: la comparación exige amenaza, superficie,
+control, punto de enforcement, baseline y adaptabilidad equivalentes, además de
+eficacia, falsos positivos, utilidad, latencia o coste y evidencia de robustez.
+Cuando faltan esas dimensiones, el resultado se conserva como señal de
+seguridad, pero no como ganador general.
+
+La frontera distingue tres intensidades. Una mención a una métrica o a una tabla
+no cuenta como resultado; una dirección cualitativa se conserva como señal; y
+solo un valor cuantificado puede sostener comparabilidad fuerte. La categoría
+`frontier_ready` exige, como mínimo, efecto de seguridad cuantificado, trade-off
+operativo cuantificado, baseline explícito y robustez. Incluso entonces la
+dominancia es condicionada: no agrega tasas obtenidas bajo amenazas,
+presupuestos o atacantes incompatibles.
+
+La taxonomía de seguridad es bilingüe y separa amenazas de familias de control.
+Distingue inyección y jailbreak, envenenamiento de herramientas o memoria,
+exfiltración y abuso de privilegios; y diferencia filtros, monitores de
+activaciones, autorización de herramientas, procedencia y flujo de información,
+aislamiento, contención criptográfica, control de memoria y verificación causal.
+
 ### 9. Estructura relacional con límites explícitos
 
 Las relaciones del corpus se analizan después de la extracción y nunca
@@ -130,6 +159,14 @@ clave y evidencia no se fusionan en un indicador único. Cada capa declara
 cobertura, densidad, componentes, centralidad, concentración, modularidad,
 estabilidad y estado interpretativo. Por debajo de los umbrales, una comunidad
 se reporta como exploratoria y no como escuela consolidada.
+
+El portfolio visual aplica la misma frontera. La red temática puede proponerse
+para el cuerpo cuando la cobertura y estabilidad permiten interpretar
+comunidades y puentes; la coautoría permanece suplementaria y nunca altera
+elegibilidad o calidad. La figura de madurez de evidencia separa alineación
+descriptiva, evidencia insuficiente y preguntas abiertas para impedir que la
+repetición de una señal se presente como causalidad. El ranking limita el
+cuerpo a cuatro figuras y conserva el resto en un catálogo descargable.
 
 ### 10. Validación del propio harness
 
@@ -146,6 +183,65 @@ solo validan el software de evaluación y una afirmación externa de rendimiento
 científico exige un conjunto independiente adjudicado por especialistas del
 dominio.
 
+### 11. Posiciones de evidencia antes que recuentos
+
+La síntesis no trata todos los resultados como votos equivalentes. Cada estudio
+se posiciona frente a una comparación explícita y conserva dirección, alcance,
+fragmento y localización. La salida distingue asociaciones positivas,
+negativas, nulas, mixtas o condicionadas, aportaciones descriptivas y casos
+donde la dirección sigue sin poder determinarse.
+
+La dirección estadística y la utilidad práctica se almacenan por separado. Una
+reducción de latencia, coste, error o riesgo puede ser una asociación negativa
+y, a la vez, un resultado favorable. Los trabajos teóricos o descriptivos se
+marcan como no aplicables en lugar de convertirse artificialmente en evidencia
+de beneficio.
+
+Una convergencia solo se declara cuando las posiciones son compatibles y existe
+base suficiente para compararlas. Si cambian el constructo, la medida, la
+población, el contexto o el diseño, el sistema conserva el desacuerdo o la
+pregunta abierta en vez de fabricar un consenso por mayoría documental. La
+repetición de un patrón en contextos distintos se reporta como alineación entre
+contextos, no como convergencia directa; una repetición sin dirección recuperable
+solo puede sostener una alineación descriptiva.
+
+### 12. Orden de lectura separado de selección
+
+Después de la extracción, la revisión calcula una prioridad de lectura para
+concentrar el juicio humano en los estudios más relevantes, transparentes,
+localizables, reproducibles y útiles para contrastar la tesis. Este score no
+reabre el cribado ni sustituye el appraisal.
+
+Las señales bibliométricas tienen peso cero. Un autor central, un trabajo muy
+citado o una comunidad grande pueden orientar exploración, pero nunca hacen un
+estudio más elegible, más riguroso ni más verdadero.
+
+### 13. Artículo y código como contrato opcional
+
+Cuando un artículo declara software, la auditoría opcional contrasta esa
+declaración con señales documentales del repositorio: disponibilidad, licencia,
+README, entorno, tests, datos y estado de archivo. El modo predeterminado es un
+inventario local; la inspección remota debe solicitarse de forma explícita.
+
+El proceso es de solo lectura. No clona, instala, importa ni ejecuta código
+externo y, por tanto, no confunde presencia de un repositorio con reproducción
+exitosa. Una reproducción computacional completa requeriría un sandbox, un
+presupuesto y un protocolo de seguridad propios.
+
+### 14. Linaje y memoria con fronteras científicas
+
+Cada fase registra hashes de sus entradas y salidas y construye un grafo de
+linaje material. Ese grafo permite responder qué archivo derivó de cuál,
+detectar cambios y reanudar sin repetir trabajo estable. Prueba procedencia de
+artefactos, no validez científica.
+
+El workspace mantiene además una memoria privada entre revisiones con consultas,
+DOI, constructos y decisiones previas. Su función es recuperar contexto y evitar
+duplicar esfuerzo. Cada nueva revisión debe volver a aplicar sus criterios:
+heredar una decisión anterior está prohibido porque pregunta, ventana y
+protocolo pueden haber cambiado. Ni el contexto privado ni su paso de ejecución
+aparecen en el linaje o estado incluidos en el ZIP público.
+
 ## Qué intenta reducir este enfoque
 
 - improvisación al definir el alcance
@@ -158,3 +254,7 @@ dominio.
 - afirmaciones sin fragmento o página verificable
 - sustitución silenciosa de modelos por el proveedor
 - repetición completa de fases cuyos inputs no han cambiado
+- consenso aparente producido por contar estudios no comparables
+- confusión entre prioridad de lectura y elegibilidad científica
+- ejecución accidental de código asociado a artículos
+- reutilización acrítica de decisiones entre revisiones

@@ -7,6 +7,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -42,8 +43,34 @@ STEP_TIMEOUTS = {
     "sync_review_to_obsidian.py": 900,
     "integrity_audit": 900,
     "build_evidence_ledger.py": 120,
+    "build_scientific_intelligence.py": 180,
+    "build_research_memory.py": 180,
     "validate_artifact_schemas.py": 120,
 }
+
+
+def resolved_step_timeout(script_name: str, review_dir: pathlib.Path) -> int | None:
+    """Scale the publication audit to the focal corpus instead of imposing a 30-minute ceiling."""
+    configured = STEP_TIMEOUTS.get(script_name)
+    if script_name != "publication_audit.py":
+        return configured
+    explicit = (os.environ.get("HERMES_PUBLICATION_AUDIT_TIMEOUT") or "").strip()
+    if explicit:
+        try:
+            return max(int(explicit), configured or 0)
+        except ValueError:
+            pass
+    shortlist = review_dir / "selection" / "ultraquality-shortlist.csv"
+    selected = 0
+    if shortlist.is_file():
+        with shortlist.open(encoding="utf-8-sig", newline="") as handle:
+            selected = sum(
+                1
+                for row in csv.DictReader(handle)
+                if (row.get("selected_for_final_n") or "").strip().lower() in {"yes", "si", "sí", "true", "1"}
+            )
+    per_document = max(60, int(os.environ.get("HERMES_DOCLING_DOCUMENT_TIMEOUT", "600")))
+    return max(configured or 0, selected * per_document + 1800)
 STEP_CONTRACTS = {
     "contracts": {
         "inputs": ["protocol/*.md", "protocol/review-mode.json"],
@@ -69,12 +96,42 @@ STEP_CONTRACTS = {
         ],
         "outputs": ["analysis/manifest.json", "analysis/atlas/network-atlas.html"],
     },
+    "research_memory": {
+        "inputs": [
+            "protocol/*.json",
+            "protocol/*.md",
+            "searches/search-log.csv",
+            "records/master-records.csv",
+            "screening/*.csv",
+            "extraction/extraction-table.csv",
+        ],
+        "outputs": [
+            "notes/prior-research-context.json",
+            "notes/prior-research-context.md",
+        ],
+    },
+    "scientific_intelligence": {
+        "inputs": [
+            "protocol/method-contract.json",
+            "extraction/extraction-table.csv",
+            "selection/ultraquality-shortlist.csv",
+        ],
+        "outputs": [
+            "analysis/scientific-intelligence.json",
+            "analysis/reading-priority.csv",
+            "analysis/evidence/claim-position-matrix.csv",
+            "analysis/evidence/evidence-position-summary.json",
+            "analysis/evidence/consensus-disagreements-open-questions.md",
+        ],
+    },
     "prepare_figures": {
         "inputs": [
             "protocol/method-contract.json",
             "extraction/extraction-table.csv",
             "selection/ultraquality-shortlist.csv",
             "paper/sections/*.md",
+            "analysis/evidence/*",
+            "analysis/reading-priority.csv",
         ],
         "outputs": ["figures/paper-figures-spec.csv", "tables/paper-tables-spec.csv"],
     },
@@ -82,6 +139,7 @@ STEP_CONTRACTS = {
         "inputs": [
             "figures/paper-figures-spec.csv",
             "tables/paper-tables-spec.csv",
+            "figures/svg/*.svg",
             "prisma/flow-counts.csv",
             "extraction/extraction-table.csv",
         ],
@@ -95,6 +153,8 @@ STEP_CONTRACTS = {
             "selection/ultraquality-shortlist.csv",
             "figures/manifest.csv",
             "tables/*.csv",
+            "analysis/evidence/*",
+            "analysis/reading-priority.csv",
         ],
         "outputs": ["paper/manuscript/publication-ready.md", "paper/audit/publication-audit.md"],
     },
@@ -151,6 +211,9 @@ STEP_CONTRACTS = {
             "tables/*.csv",
             "paper/audit/evidence-coverage.json",
             "paper/audit/model-capabilities.json",
+            "analysis/scientific-intelligence.json",
+            "analysis/evidence/evidence-position-summary.json",
+            "notes/artifact-lineage.json",
         ],
         "outputs": [
             "paper/audit/schema-validation.json",
@@ -169,6 +232,10 @@ STEP_CONTRACTS = {
             "analysis/atlas/*",
             "analysis/data/*",
             "analysis/metrics/*",
+            "analysis/evidence/*",
+            "analysis/reproducibility/*",
+            "analysis/reading-priority.csv",
+            "analysis/scientific-intelligence.json",
             "figures/*.csv",
             "figures/png/*",
             "figures/svg/*",
@@ -197,6 +264,7 @@ STEP_CONTRACTS = {
             "paper/audit/integrity-audit/*",
             "paper/audit/evidence-coverage.json",
             "paper/audit/schema-validation.json",
+            "analysis/scientific-intelligence.json",
             "paper/package/*.zip",
             "figures/manifest.csv",
             "tables/*.csv",
@@ -274,7 +342,7 @@ def run_step(script_name: str, review_dir: pathlib.Path, extra_args: list[str] |
     cmd = [sys.executable, str(script_path), str(review_dir)]
     if extra_args:
         cmd.extend(extra_args)
-    timeout = STEP_TIMEOUTS.get(script_name)
+    timeout = resolved_step_timeout(script_name, review_dir)
     try:
         subprocess.run(
             cmd,
@@ -437,6 +505,21 @@ def main() -> int:
             ),
         )
         run_cached(review_dir, "network_analysis", lambda: run_network_analysis(review_dir))
+        run_cached(
+            review_dir,
+            "research_memory",
+            lambda: run_step(
+                "build_research_memory.py",
+                review_dir,
+                ["--workspace-root", str(review_dir.parent)],
+            ),
+            force=True,
+        )
+        run_cached(
+            review_dir,
+            "scientific_intelligence",
+            lambda: run_step("build_scientific_intelligence.py", review_dir),
+        )
     except (RuntimeError, subprocess.CalledProcessError) as exc:
         write_report(review_dir, rounds, f"Bloqueo en preparación metodológica o análisis estructural: {exc}")
         return 1

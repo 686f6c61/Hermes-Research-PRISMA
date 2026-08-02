@@ -132,7 +132,8 @@ def normalize_doi(text: str) -> str:
     value = text.strip()
     value = re.sub(r"^https?://(dx\.)?doi\.org/", "", value, flags=re.I)
     value = re.sub(r"^doi:\s*", "", value, flags=re.I)
-    return value.lower()
+    value = value.lower()
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", value)
 
 
 def stable_record_key(row: dict[str, str]) -> str:

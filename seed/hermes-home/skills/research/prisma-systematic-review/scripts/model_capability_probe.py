@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
+import time
 from datetime import datetime, timezone
 
 from cloud_inference import (
@@ -20,6 +22,8 @@ from cloud_inference import (
 
 SCHEMA_VERSION = "hermes.model-capabilities/v1"
 HERMES_HOME = pathlib.Path(__file__).resolve().parents[4]
+LIVE_PROBE_ATTEMPTS = 3
+LIVE_PROBE_BACKOFF_SECONDS = 1.0
 
 
 def load_env_file(path: pathlib.Path) -> dict[str, str]:
@@ -33,6 +37,31 @@ def load_env_file(path: pathlib.Path) -> dict[str, str]:
             continue
         key, value = stripped.split("=", 1)
         values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def resolve_private_env_values(review_dir: pathlib.Path | None) -> dict[str, str]:
+    """Load bounded local runtime configuration without exposing secret values."""
+    candidates: list[pathlib.Path] = []
+    if review_dir is not None:
+        candidates.extend(parent / ".env" for parent in review_dir.resolve().parents[:4])
+        candidates.append(review_dir / ".env")
+    candidates.extend(
+        [
+            HERMES_HOME / ".env",
+            HERMES_HOME.parent / ".env",
+            HERMES_HOME.parent.parent / ".env",
+        ]
+    )
+    values: dict[str, str] = {}
+    seen: set[pathlib.Path] = set()
+    for candidate in reversed(candidates):
+        normalized = candidate.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        values.update(load_env_file(candidate))
+    values.update({key: value for key, value in os.environ.items() if value})
     return values
 
 
@@ -104,23 +133,27 @@ def probe_json(
     model: str,
     role: str,
     review_dir: pathlib.Path | None,
+    reasoning_effort: str = "",
 ) -> dict[str, object]:
     """Verify that the model can finish a compact machine-readable object."""
+    payload: dict[str, object] = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": 'Return only this JSON object: {"status":"HERMES_OK","value":7}',
+            }
+        ],
+        "temperature": 0,
+        "max_tokens": adaptive_max_tokens(model, 128),
+        "response_format": {"type": "json_object"},
+    }
+    if reasoning_effort in {"none", "minimal", "low", "medium", "high"}:
+        payload["reasoning_effort"] = reasoning_effort
     response = post_openai_compatible_chat(
         base_url=base_url,
         api_key=api_key,
-        payload={
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": 'Return only this JSON object: {"status":"HERMES_OK","value":7}',
-                }
-            ],
-            "temperature": 0,
-            "max_tokens": adaptive_max_tokens(model, 128),
-            "response_format": {"type": "json_object"},
-        },
+        payload=payload,
         timeout_seconds=90,
         user_agent="HermesResearchCapabilityProbe/1.0",
         role=role,
@@ -138,6 +171,41 @@ def probe_json(
     }
 
 
+def run_live_probe_with_retries(
+    probe,
+    probe_kwargs: dict[str, object],
+    *,
+    capability: str,
+    attempts: int = LIVE_PROBE_ATTEMPTS,
+    sleep_fn=time.sleep,
+) -> dict[str, object]:
+    """Retry a bounded live probe when a provider returns an empty or transient failure."""
+    bounded_attempts = max(1, min(int(attempts), 5))
+    last_result: dict[str, object] = {
+        "capability": capability,
+        "status": "fail",
+        "effective_model": "",
+        "detail": "Capability probe did not run.",
+    }
+    for attempt in range(1, bounded_attempts + 1):
+        try:
+            result = probe(**probe_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            result = {
+                "capability": capability,
+                "status": "fail",
+                "effective_model": "",
+                "detail": str(exc)[:300],
+            }
+        result["attempts"] = attempt
+        last_result = result
+        if result.get("status") == "pass":
+            return result
+        if attempt < bounded_attempts:
+            sleep_fn(LIVE_PROBE_BACKOFF_SECONDS * attempt)
+    return last_result
+
+
 def build_registry(
     env_values: dict[str, str],
     *,
@@ -147,6 +215,10 @@ def build_registry(
     """Create declared-only or live-tested capability evidence by role."""
     base_url, api_key = resolve_inference_runtime(env_values)
     role_models = configured_research_model_roles(env_values)
+    reasoning_effort = (
+        os.environ.get("HERMES_REASONING_EFFORT", "").strip().lower()
+        or env_values.get("HERMES_REASONING_EFFORT", "").strip().lower()
+    )
     roles: list[dict[str, object]] = []
     for role, model in role_models.items():
         required = list(MODEL_ROLE_CAPABILITIES.get(role, ("text",)))
@@ -166,25 +238,23 @@ def build_registry(
                 if "json" in required:
                     probes.append(probe_json)
                 for probe in probes:
-                    try:
-                        tests.append(
-                            probe(
-                                base_url=base_url,
-                                api_key=api_key,
-                                model=model,
-                                role=role,
-                                review_dir=review_dir,
-                            )
+                    capability = "json" if probe is probe_json else "text"
+                    probe_kwargs: dict[str, object] = {
+                        "base_url": base_url,
+                        "api_key": api_key,
+                        "model": model,
+                        "role": role,
+                        "review_dir": review_dir,
+                    }
+                    if probe is probe_json:
+                        probe_kwargs["reasoning_effort"] = reasoning_effort
+                    tests.append(
+                        run_live_probe_with_retries(
+                            probe,
+                            probe_kwargs,
+                            capability=capability,
                         )
-                    except Exception as exc:  # noqa: BLE001
-                        tests.append(
-                            {
-                                "capability": "json" if probe is probe_json else "text",
-                                "status": "fail",
-                                "effective_model": "",
-                                "detail": str(exc)[:300],
-                            }
-                        )
+                    )
         if "vision" in required:
             tests.append(
                 {
@@ -235,9 +305,9 @@ def main() -> int:
     parser.add_argument("--output", type=pathlib.Path, help="Output JSON path.")
     args = parser.parse_args()
 
-    env_values = load_env_file(HERMES_HOME / ".env")
     review_arg = args.review_dir_option or args.review_dir_pos
     review_dir = review_arg.expanduser().resolve() if review_arg else None
+    env_values = resolve_private_env_values(review_dir)
     registry = build_registry(env_values, live=args.live, review_dir=review_dir)
     output = args.output
     if output is None and review_dir is not None:

@@ -55,6 +55,10 @@ EMPIRICAL_MARKERS = (
     "frecuencia",
     "proporcion",
 )
+AGGREGATE_VALUE_RE = re.compile(
+    r"(?:\b\d+\s*/\s*\d+\b|\b\d+(?:[.,]\d+)?\s*%|\bn\s*=\s*\d+\b)",
+    flags=re.IGNORECASE,
+)
 
 
 def normalized(text: str) -> str:
@@ -153,6 +157,21 @@ def citation_keys(paragraph: str) -> set[str]:
     )
     for surname, year in pattern.findall(paragraph):
         keys.add(f"{normalized(surname)}|{year}")
+    # Parenthetical citations with several named authors put the first surname
+    # far away from the year: ``(Zhao, Bhaskar, & Dobriban, 2026)``. Resolve
+    # each semicolon-delimited citation from its first surname, which is the
+    # same identity used by the extraction matrix.
+    for group in re.findall(r"\(([^()]*(?:19|20)\d{2}[^()]*)\)", paragraph):
+        for citation in group.split(";"):
+            year_match = re.search(r"\b((?:19|20)\d{2})\b", citation)
+            surname_match = re.match(
+                r"\s*([A-ZÁÉÍÓÚÑÜ][A-Za-zÀ-ÿ'’-]{1,40})",
+                citation,
+            )
+            if year_match and surname_match:
+                keys.add(
+                    f"{normalized(surname_match.group(1))}|{year_match.group(1)}"
+                )
     return keys
 
 
@@ -160,14 +179,28 @@ def claim_type(section: str, paragraph: str) -> str:
     """Classify claims so unsupported empirical statements can block the gate."""
     section_norm = normalized(section)
     paragraph_norm = normalized(paragraph)
+    keys = citation_keys(paragraph)
+    aggregate_value = bool(AGGREGATE_VALUE_RE.search(paragraph))
     if section_norm in CRITICAL_SECTIONS and (
-        re.search(r"\b\d+(?:[.,]\d+)?%?\b", paragraph)
-        or any(marker in paragraph_norm for marker in EMPIRICAL_MARKERS)
+        bool(keys)
+        or (
+            aggregate_value
+            and any(marker in paragraph_norm for marker in EMPIRICAL_MARKERS)
+        )
     ):
         return "critical_empirical"
-    if citation_keys(paragraph):
+    if keys:
         return "sourced_context"
     return "interpretive"
+
+
+def matrix_aggregate_claim(paragraph: str) -> bool:
+    """Identify numerical synthesis claims recomputable from the DOI matrix."""
+
+    paragraph_norm = normalized(paragraph)
+    return bool(AGGREGATE_VALUE_RE.search(paragraph)) and any(
+        marker in paragraph_norm for marker in EMPIRICAL_MARKERS
+    )
 
 
 def claim_id(section: str, paragraph: str) -> str:
@@ -182,6 +215,19 @@ def build_ledger(review_dir: pathlib.Path) -> tuple[list[dict[str, str]], dict[s
     manuscript = manuscript_path.read_text(encoding="utf-8", errors="ignore") if manuscript_path.exists() else ""
     extraction = read_csv(review_dir / "extraction" / "extraction-table.csv")
     index = study_index(extraction)
+    material_rows: dict[str, dict[str, str]] = {}
+    for row in extraction:
+        doi = clean_doi(
+            row.get("assigned_doi")
+            or row.get("doi")
+            or row.get("record_id")
+            or ""
+        )
+        if not doi:
+            continue
+        prepared = dict(row)
+        prepared["_doi"] = doi
+        material_rows[doi] = prepared
     ledger: list[dict[str, str]] = []
     for section, paragraph in manuscript_paragraphs(manuscript):
         keys = citation_keys(paragraph)
@@ -193,6 +239,15 @@ def build_ledger(review_dir: pathlib.Path) -> tuple[list[dict[str, str]], dict[s
             for row in matched_rows
             if row.get("_doi")
         }
+        kind = claim_type(section, paragraph)
+        matrix_derived = (
+            kind == "critical_empirical"
+            and not unique_rows
+            and not keys
+            and matrix_aggregate_claim(paragraph)
+        )
+        if matrix_derived:
+            unique_rows = dict(material_rows)
         dois = sorted(unique_rows)
         locations = sorted(
             {
@@ -201,14 +256,24 @@ def build_ledger(review_dir: pathlib.Path) -> tuple[list[dict[str, str]], dict[s
                 if (row.get("evidence_location") or "").strip()
             }
         )
+        if matrix_derived:
+            locations.insert(
+                0,
+                "extraction/extraction-table.csv (filas focales enlazadas por DOI)",
+            )
         snippets = [
             (row.get("evidence_snippet") or "").strip()
             for row in unique_rows.values()
             if (row.get("evidence_snippet") or "").strip()
         ]
-        kind = claim_type(section, paragraph)
         page_anchored = any(re.search(r"\b(?:p|pp|page|pagina|página)\.?\s*\d+", item, flags=re.I) for item in locations)
-        if dois and snippets and page_anchored:
+        if matrix_derived and dois and len(snippets) == len(unique_rows):
+            status = "located"
+            detail = (
+                "Aggregate claim is recomputable from DOI-linked focal matrix "
+                "rows, each with a recoverable source fragment."
+            )
+        elif dois and snippets and page_anchored:
             status = "located"
             detail = "DOI, source fragment, and page-like location are available."
         elif dois and snippets:

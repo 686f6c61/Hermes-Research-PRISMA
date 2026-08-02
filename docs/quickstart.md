@@ -121,7 +121,23 @@ El paquete final debe incluir Markdown, LaTeX editable, PDF, anexos,
 bibliografía, auditoría y revisión. Un `PASS` técnico no elimina la revisión
 académica y editorial humana.
 
-## 7. Detén sin perder datos
+## 7. Explora la inteligencia científica
+
+El ciclo ya genera estas capas automáticamente. También puedes reconstruirlas
+o inspeccionarlas de forma explícita:
+
+```bash
+./hermes-research intelligence
+./hermes-research memory
+./hermes-research code-audit
+```
+
+`intelligence` separa convergencias, desacuerdos y preguntas abiertas, además
+de ordenar la lectura sin cambiar la selección. `memory` actualiza el contexto
+privado entre revisiones. `code-audit` es opcional y no ejecuta repositorios;
+añade `--inspect-remote` únicamente si quieres consultar metadatos públicos.
+
+## 8. Detén sin perder datos
 
 ```bash
 ./hermes-research down

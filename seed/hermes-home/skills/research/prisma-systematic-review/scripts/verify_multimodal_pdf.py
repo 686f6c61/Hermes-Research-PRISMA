@@ -17,6 +17,7 @@ from cloud_inference import (
     post_openai_compatible_chat,
     resolve_inference_runtime,
 )
+from model_capability_probe import resolve_private_env_values
 
 SELF_TEST_TEX = r"""
 \documentclass[11pt]{article}
@@ -99,6 +100,58 @@ def answer_contains_expected_values(answer: str) -> bool:
     return all(token in normalized for token in ("H7", "42", "37.4"))
 
 
+def normalized_anchor_tokens(value: str) -> set[str]:
+    """Return meaningful comparable tokens from OCR or model output."""
+    dehyphenated = re.sub(r"(?<=\w)-\s+(?=\w)", "", value)
+    tokens = {
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9-]{2,}", dehyphenated.lower())
+    }
+    stopwords = {
+        "and",
+        "con",
+        "del",
+        "entre",
+        "para",
+        "por",
+        "the",
+        "una",
+    }
+    return tokens - stopwords
+
+
+def first_page_title_anchor(extracted_text: str) -> str:
+    """Read the first visible text block as the expected document title."""
+    blocks = [
+        re.sub(r"(?<=\w)-\s+(?=\w)", "", " ".join(block.split()))
+        for block in re.split(r"\n\s*\n", extracted_text)
+        if len(" ".join(block.split())) >= 20
+    ]
+    if not blocks:
+        raise RuntimeError("The PDF first page did not expose a usable title block")
+    return blocks[0]
+
+
+def answer_matches_title_anchor(answer: str, expected_anchor: str) -> bool:
+    """Require substantial title-token agreement for a real scientific PDF."""
+    expected = normalized_anchor_tokens(expected_anchor)
+    observed = normalized_anchor_tokens(answer)
+    if len(expected) < 4:
+        return False
+    required = max(4, int(len(expected) * 0.55 + 0.999))
+    return len(expected & observed) >= required
+
+
+def infer_review_dir(pdf_path: pathlib.Path | None) -> pathlib.Path | None:
+    """Find the owning review from a manuscript PDF path."""
+    if pdf_path is None:
+        return None
+    for candidate in [pdf_path.parent, *pdf_path.parents]:
+        if (candidate / "protocol" / "intake.json").is_file():
+            return candidate
+    return None
+
+
 def build_self_test_pdf(workdir: pathlib.Path) -> pathlib.Path:
     """Create a deterministic one-page PDF with text, a diagram, and a table."""
     tex_path = workdir / "multimodal-probe.tex"
@@ -115,7 +168,12 @@ def build_self_test_pdf(workdir: pathlib.Path) -> pathlib.Path:
     return workdir / "multimodal-probe.pdf"
 
 
-def render_pdf(pdf_path: pathlib.Path, workdir: pathlib.Path) -> tuple[str, pathlib.Path]:
+def render_pdf(
+    pdf_path: pathlib.Path,
+    workdir: pathlib.Path,
+    *,
+    require_self_test_values: bool,
+) -> tuple[str, pathlib.Path]:
     """Extract the text layer and render the first PDF page to PNG."""
     text_path = workdir / "multimodal-probe.txt"
     image_prefix = workdir / "multimodal-probe-page"
@@ -126,14 +184,22 @@ def render_pdf(pdf_path: pathlib.Path, workdir: pathlib.Path) -> tuple[str, path
     )
     extracted_text = text_path.read_text(encoding="utf-8", errors="replace")
     image_path = image_prefix.with_suffix(".png")
-    if not answer_contains_expected_values(extracted_text):
+    if require_self_test_values and not answer_contains_expected_values(extracted_text):
         raise RuntimeError("The PDF text layer did not preserve H7, 42, and 37.4")
+    if not require_self_test_values:
+        first_page_title_anchor(extracted_text)
     if not image_path.exists() or image_path.stat().st_size < 10_000:
         raise RuntimeError("The rendered PDF page is missing or unexpectedly small")
     return extracted_text, image_path
 
 
-def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[dict[str, object]]:
+def verify_models(
+    image_path: pathlib.Path,
+    env_values: dict[str, str],
+    *,
+    expected_title: str = "",
+    review_dir: pathlib.Path | None = None,
+) -> list[dict[str, object]]:
     """Ask only roles that require vision to read facts from the page image."""
     base_url, api_key = resolve_inference_runtime(env_values)
     if not api_key:
@@ -152,11 +218,17 @@ def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[
     encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
     data_url = f"data:image/png;base64,{encoded}"
     results: list[dict[str, object]] = []
-    prompt = (
-        "Lee únicamente la página mostrada. Responde con el código visual, "
-        "el tamaño total de la muestra y la media de la condición B. "
-        "Formato recomendado: H7 | 42 | 37.4."
-    )
+    if expected_title:
+        prompt = (
+            "Lee únicamente la primera página mostrada y transcribe el título principal "
+            "del documento. No lo resumas ni añadas comentarios."
+        )
+    else:
+        prompt = (
+            "Lee únicamente la página mostrada. Responde con el código visual, "
+            "el tamaño total de la muestra y la media de la condición B. "
+            "Formato recomendado: H7 | 42 | 37.4."
+        )
     for role, model in vision_roles.items():
         response = post_openai_compatible_chat(
             base_url=base_url,
@@ -182,9 +254,14 @@ def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[
             user_agent="HermesResearchMultimodalProbe/1.0",
             role=role,
             capability="vision",
+            review_dir=review_dir,
         )
         answer = extract_message_content(response)
-        passed = answer_contains_expected_values(answer)
+        passed = (
+            answer_matches_title_anchor(answer, expected_title)
+            if expected_title
+            else answer_contains_expected_values(answer)
+        )
         results.append(
             {
                 "role": role,
@@ -195,7 +272,8 @@ def verify_models(image_path: pathlib.Path, env_values: dict[str, str]) -> list[
             }
         )
         if not passed:
-            raise RuntimeError(f"{model} did not recover every expected visual value: {answer}")
+            expectation = "the visible title" if expected_title else "every expected visual value"
+            raise RuntimeError(f"{model} did not recover {expectation}: {answer}")
     return results
 
 
@@ -211,14 +289,29 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="hermes-multimodal-") as temp_dir:
         workdir = pathlib.Path(temp_dir)
-        pdf_path = args.pdf.resolve() if args.pdf else build_self_test_pdf(workdir)
-        _, image_path = render_pdf(pdf_path, workdir)
-        results = verify_models(image_path, {})
+        external_pdf = args.pdf is not None
+        pdf_path = args.pdf.resolve() if external_pdf else build_self_test_pdf(workdir)
+        review_dir = infer_review_dir(pdf_path) if external_pdf else None
+        env_values = resolve_private_env_values(review_dir)
+        extracted_text, image_path = render_pdf(
+            pdf_path,
+            workdir,
+            require_self_test_values=not external_pdf,
+        )
+        expected_title = first_page_title_anchor(extracted_text) if external_pdf else ""
+        results = verify_models(
+            image_path,
+            env_values,
+            expected_title=expected_title,
+            review_dir=review_dir,
+        )
         evidence = {
             "schema_version": "hermes.multimodal-probe/v1",
             "status": "pass",
+            "probe_mode": "scientific_pdf" if external_pdf else "deterministic_self_test",
             "pdf_text_layer": "pass",
             "pdf_page_render": "pass",
+            "expected_title": expected_title,
             "models": results,
         }
         if args.output:

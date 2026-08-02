@@ -61,7 +61,7 @@ FIGURE_EVIDENCE_FIELDS = [
     "status",
 ]
 DEFAULT_SERVICE_URL = "http://docling:5001"
-DEFAULT_DOCUMENT_TIMEOUT = 180
+DEFAULT_DOCUMENT_TIMEOUT = 600
 DEFAULT_MAX_FILE_MB = 50
 
 
@@ -82,7 +82,10 @@ def normalize_doi(value: str) -> str:
     text = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", text, flags=re.IGNORECASE)
     text = re.sub(r"^doi:\s*", "", text, flags=re.IGNORECASE)
     text = text.strip().rstrip(".,;)")
-    return text.lower() if text.startswith("10.") and "/" in text else ""
+    if not (text.startswith("10.") and "/" in text):
+        return ""
+    normalized = text.lower()
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", normalized)
 
 
 def doi_file_stem(doi: str) -> str:
@@ -127,13 +130,15 @@ def read_csv_rows(path: pathlib.Path) -> list[dict[str, str]]:
 
 
 def write_csv_rows(path: pathlib.Path, fields: list[str], rows: Iterable[dict[str, Any]]) -> None:
-    """Write a stable UTF-8 CSV artifact."""
+    """Write a stable UTF-8 CSV artifact atomically."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+    temporary.replace(path)
 
 
 def service_url() -> str:
@@ -646,8 +651,49 @@ def extract_review_documents(
 
     prior_rows = read_csv_rows(output_dir / "manifest.csv")
     merged = {normalize_doi(row.get("doi", "")): row for row in prior_rows if normalize_doi(row.get("doi", ""))}
-    table_rows: list[dict[str, str]] = []
-    figure_rows: list[dict[str, str]] = []
+    table_rows = read_csv_rows(output_dir / "table-evidence.csv")
+    figure_rows = read_csv_rows(output_dir / "figure-evidence.csv")
+
+    # Recover successful DOI-addressed conversions left by an older interrupted
+    # run. The source hash prevents a stale cache from being accepted when its
+    # PDF has changed.
+    for source in selected_rows:
+        doi = normalize_doi(source.get("assigned_doi") or source.get("doi") or "")
+        source_path = pathlib.Path(source.get("full_text_path") or "")
+        if doi in merged or not doi or not source_path.is_file():
+            continue
+        stem = doi_file_stem(doi)
+        markdown_path = output_dir / f"{stem}.md"
+        json_path = output_dir / f"{stem}.json"
+        if not markdown_path.is_file() or not json_path.is_file():
+            continue
+        try:
+            doc_json = json.loads(json_path.read_text(encoding="utf-8"))
+            markdown = markdown_path.read_text(encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(doc_json, dict) or not markdown.strip():
+            continue
+        merged[doi] = {
+            "doi": doi,
+            "source_path": str(source_path),
+            "source_sha256": sha256_file(source_path),
+            "status": "success",
+            "duration_seconds": "0.00",
+            "page_count": str(page_count(doc_json)),
+            "table_count": "",
+            "figure_count": "",
+            "markdown_path": relative_path(markdown_path, review_dir),
+            "json_path": relative_path(json_path, review_dir),
+            "docling_version": version,
+            "confidence_grade": "recovered_checkpoint",
+            "error": "",
+        }
+    write_csv_rows(
+        output_dir / "manifest.csv",
+        DOCLING_MANIFEST_FIELDS,
+        [merged[key] for key in sorted(merged)],
+    )
     raw_limit = (os.environ.get("HERMES_DOCLING_DOCUMENT_LIMIT") or "0").strip()
     try:
         limit = max(0, int(raw_limit))
@@ -661,6 +707,68 @@ def extract_review_documents(
             continue
         if limit and processed >= limit:
             break
+        existing = merged.get(doi, {})
+        stem = doi_file_stem(doi)
+        # Prefer the paths recorded by the successful conversion. An arXiv
+        # source can retain a version suffix (v1/v3) while the focal record uses
+        # its canonical DOI; deriving the filenames again would miss a valid
+        # cache and needlessly reconvert the same PDF.
+        markdown_path = (
+            review_dir / existing["markdown_path"]
+            if existing.get("markdown_path")
+            else output_dir / f"{stem}.md"
+        )
+        json_path = (
+            review_dir / existing["json_path"]
+            if existing.get("json_path")
+            else output_dir / f"{stem}.json"
+        )
+        cached_tables = [
+            row for row in table_rows if normalize_doi(row.get("record_id", "")) == doi
+        ]
+        cached_figures = [
+            row for row in figure_rows if normalize_doi(row.get("record_id", "")) == doi
+        ]
+
+        def cached_assets_exist(
+            rows: list[dict[str, str]],
+            path_field: str,
+            expected_count: int,
+        ) -> bool:
+            if expected_count > len(rows):
+                return False
+            return all(
+                (review_dir / row.get(path_field, "")).is_file()
+                for row in rows
+                if row.get(path_field)
+            )
+
+        try:
+            expected_tables = max(0, int(existing.get("table_count") or 0))
+            expected_figures = max(0, int(existing.get("figure_count") or 0))
+        except (TypeError, ValueError):
+            expected_tables = 0
+            expected_figures = 0
+        source_hash = sha256_file(source_path)
+        if (
+            not force
+            and existing.get("status") == "success"
+            and existing.get("source_sha256") == source_hash
+            and markdown_path.is_file()
+            and json_path.is_file()
+            and cached_assets_exist(
+                cached_tables,
+                "extracted_table_path",
+                expected_tables,
+            )
+            and cached_assets_exist(
+                cached_figures,
+                "extracted_asset_path",
+                expected_figures,
+            )
+        ):
+            processed += 1
+            continue
         manifest_row, extracted_tables, extracted_figures = process_pdf(
             review_dir,
             source_path,
@@ -669,11 +777,30 @@ def extract_review_documents(
             force=force,
         )
         merged[doi] = manifest_row
+        table_rows = [
+            row for row in table_rows if normalize_doi(row.get("record_id", "")) != doi
+        ]
+        figure_rows = [
+            row for row in figure_rows if normalize_doi(row.get("record_id", "")) != doi
+        ]
         table_rows.extend(extracted_tables)
         figure_rows.extend(extracted_figures)
         processed += 1
+        # Persist after every DOI so a timeout or restart resumes from the next
+        # document instead of repeating hours of structured extraction.
+        write_csv_rows(
+            output_dir / "manifest.csv",
+            DOCLING_MANIFEST_FIELDS,
+            [merged[key] for key in sorted(merged)],
+        )
+        write_csv_rows(output_dir / "table-evidence.csv", TABLE_EVIDENCE_FIELDS, table_rows)
+        write_csv_rows(output_dir / "figure-evidence.csv", FIGURE_EVIDENCE_FIELDS, figure_rows)
 
-    write_csv_rows(output_dir / "manifest.csv", DOCLING_MANIFEST_FIELDS, merged.values())
+    write_csv_rows(
+        output_dir / "manifest.csv",
+        DOCLING_MANIFEST_FIELDS,
+        [merged[key] for key in sorted(merged)],
+    )
     write_csv_rows(output_dir / "table-evidence.csv", TABLE_EVIDENCE_FIELDS, table_rows)
     write_csv_rows(output_dir / "figure-evidence.csv", FIGURE_EVIDENCE_FIELDS, figure_rows)
     (output_dir / "status.json").write_text(

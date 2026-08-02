@@ -25,8 +25,10 @@ The workflow is **DOI-first**:
 6. Screen full text with auditable exclusion reasons.
 7. Extract structured data.
 8. Build an auditable structural atlas of authors, topics, references, evidence, and selection-stage drift.
-9. Produce PRISMA counts, tables, and methods text.
-10. Iterate on manuscript, figures, tables, and references until the publication gate passes or a real blocker is documented.
+9. Compare evidence positions and separate convergence, disagreement, null findings, qualified patterns, and open questions.
+10. Build a reading-priority queue that never changes eligibility or focal selection.
+11. Produce PRISMA counts, tables, and methods text.
+12. Iterate on manuscript, figures, tables, and references until the publication gate passes or a real blocker is documented.
 
 ## Core Rules
 
@@ -37,6 +39,10 @@ The workflow is **DOI-first**:
 - Keep exclusion reasons explicit and one-per-record at the stage where exclusion happened.
 - Every count shown in methods or PRISMA output must be reproducible from files in the workspace.
 - Network position, author productivity, and citation counts must never influence eligibility, critical appraisal, or focal selection.
+- Reading priority is independent from eligibility. Bibliometric signals have zero weight in its scientific score.
+- Cross-review memory may recover queries, DOI, constructs, and prior decisions, but reusing a prior decision as a current decision is forbidden.
+- Paper-code auditing is optional and read-only. Never clone, install, import, or execute third-party repositories in the review runtime.
+- Artifact lineage proves material derivation, not the validity of a scientific interpretation.
 - After every material update, sync the review to Obsidian immediately. Do not wait until the end.
 - In autonomous mode, continue phase by phase until every required artifact exists or a real blocker stops the workflow.
 - Every review must declare or infer a methodological mode before search: `biomédico`, `técnico`, `ciencias sociales`, `educación`, `management` or `mixto`. Persist the decision in `protocol/review-mode.md`, `protocol/review-mode.json`, and `audit/mode-decision.md`.
@@ -317,6 +323,16 @@ systematic-review/
     manifest.json
     methodology.md
     summary.md
+    scientific-intelligence.json
+    reading-priority.csv
+    evidence/
+      claim-position-matrix.csv
+      evidence-position-summary.json
+      consensus-disagreements-open-questions.md
+    reproducibility/
+      paper-code-consistency.csv
+      paper-code-audit.json
+      paper-code-audit.md
     atlas/
       network-atlas.html
     data/
@@ -338,7 +354,15 @@ systematic-review/
     checklist-notes.md
   notes/
     decisions.md
+    artifact-lineage.json
+    prior-research-context.json
+    prior-research-context.md
 ```
+
+The `analysis/reproducibility/` files are optional. The cross-review context is
+private and must not enter public packages. `notes/artifact-lineage.json` uses
+relative paths and content hashes and is safe to publish after the normal
+sanitisation gate.
 
 ## Structural Analysis Contract
 

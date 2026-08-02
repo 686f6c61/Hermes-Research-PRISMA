@@ -47,7 +47,9 @@ KEEP_DOCLING_TEST_ARTIFACTS=1 ./hermes-research docling-test
 - `HERMES_DOCLING_API_KEY` autentica el tráfico interno y debe conservar al
   restaurar la instalación.
 - `DOCLING_SERVE_URL` apunta al servicio interno.
-- `HERMES_DOCLING_DOCUMENT_TIMEOUT` limita cada PDF.
+- `HERMES_DOCLING_DOCUMENT_TIMEOUT` limita cada PDF; el paquete usa 600
+  segundos para admitir documentos densos sin convertir una demora en pérdida
+  silenciosa de evidencia.
 - `HERMES_DOCLING_MAX_FILE_MB` limita el archivo enviado.
 - `HERMES_DOCLING_DOCUMENT_LIMIT=0` procesa todos los PDF focales disponibles.
 - `DOCLING_SERVE_MAX_NUM_PAGES` protege al worker de documentos desmesurados.
@@ -55,6 +57,9 @@ KEEP_DOCLING_TEST_ARTIFACTS=1 ./hermes-research docling-test
 - `DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT` limita el procesamiento total.
 - `DOCLING_SERVE_MAX_SYNC_WAIT` limita la espera de la llamada síncrona.
 - `DOCLING_NUM_THREADS` y `DOCLING_PERF_PAGE_BATCH_SIZE` acotan CPU y lote.
+- `HERMES_PUBLICATION_AUDIT_TIMEOUT` permite fijar un techo global; si no se
+  declara, la auditoría calcula uno proporcional al N focal y conserva la
+  reanudación por DOI.
 
 El servicio no publica ningún puerto y no comparte la red de Compose con
 aplicaciones ajenas al bundle. La clave se guarda en `.env` con permisos

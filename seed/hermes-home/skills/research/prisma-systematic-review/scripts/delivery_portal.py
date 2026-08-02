@@ -6,6 +6,7 @@ import csv
 import html
 import json
 import pathlib
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -74,6 +75,7 @@ DELIVERABLES = [
             "tables/critical-appraisal-matrix.csv",
             "paper/audit/claim-evidence-ledger.csv",
             "paper/audit/evidence-coverage.*",
+            "analysis/evidence/*",
         ],
         "required": [
             "extraction/extraction-table.csv",
@@ -86,9 +88,14 @@ DELIVERABLES = [
         "id": "analysis",
         "number": "06",
         "title": "Síntesis y análisis",
-        "description": "Incluye evaluación crítica, sensibilidad, redes, comunidades y datos estructurales.",
+        "description": "Incluye posiciones de evidencia, matrices especializadas, prioridad de lectura, evaluación crítica, sensibilidad, redes y comunidades.",
         "patterns": [
             "analysis/manifest.json",
+            "analysis/scientific-intelligence.json",
+            "analysis/reading-priority.csv",
+            "analysis/evidence/*",
+            "analysis/security/*",
+            "analysis/reproducibility/*",
             "analysis/data/*",
             "analysis/metrics/*",
             "analysis/audit/*",
@@ -104,14 +111,22 @@ DELIVERABLES = [
         "description": "Cada visual conserva fuente editable, versión de publicación y justificación analítica.",
         "patterns": [
             "figures/manifest.csv",
+            "figures/*.html",
             "figures/*.md",
             "figures/png/*",
             "figures/svg/*",
+            "analysis/figures/png/*",
+            "analysis/figures/svg/*",
             "tables/*.csv",
             "tables/*.md",
         ],
-        "required": ["figures/manifest.csv", "figures/paper-figures-spec.csv", "tables/paper-tables-spec.csv"],
-        "start": "figures/manifest.csv",
+        "required": [
+            "figures/gallery.html",
+            "figures/manifest.csv",
+            "figures/paper-figures-spec.csv",
+            "tables/paper-tables-spec.csv",
+        ],
+        "start": "figures/gallery.html",
     },
     {
         "id": "publication",
@@ -162,9 +177,14 @@ DELIVERABLES = [
         "number": "11",
         "title": "Reanudación y actualización",
         "description": "Permite continuar por contenido cambiado sin repetir fases estables.",
-        "patterns": ["notes/runtime-state.*", "notes/pipeline-state.json", "notes/job-ledger.json"],
-        "required": ["notes/pipeline-state.json"],
-        "start": "notes/pipeline-state.json",
+        "patterns": [
+            "notes/runtime-state.*",
+            "notes/pipeline-state.json",
+            "notes/artifact-lineage.json",
+            "notes/job-ledger.json",
+        ],
+        "required": ["notes/pipeline-state.json", "notes/artifact-lineage.json"],
+        "start": "notes/artifact-lineage.json",
     },
     {
         "id": "interactive",
@@ -215,9 +235,200 @@ def collect_files(review_dir: pathlib.Path, patterns: list[str]) -> list[pathlib
         path
         for path in files
         if "__pycache__" not in path.parts
-        and ".DS_Store" not in path.parts
+        and not any(part.startswith(".") for part in path.relative_to(review_dir).parts)
         and path.name not in {"publication-package.zip"}
     )
+
+
+def read_csv_rows(path: pathlib.Path) -> list[dict[str, str]]:
+    """Read a small CSV used to explain visual publication decisions."""
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def figure_asset_href(path_value: str) -> str:
+    """Resolve a review-relative asset from figures/gallery.html."""
+    value = path_value.strip().lstrip("/")
+    if value.startswith("figures/"):
+        return value[len("figures/") :]
+    return "../" + value
+
+
+def build_figure_gallery(review_dir: pathlib.Path) -> pathlib.Path:
+    """Create an offline academic gallery for every publication-ready visual."""
+    figures_dir = review_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    manifest_rows = read_csv_rows(figures_dir / "manifest.csv")
+    manifest_ids = {(row.get("figure_id") or "").strip() for row in manifest_rows}
+    for figure_id, title, stem in (
+        ("fig-topic-network", "Red temática del corpus", "topics-network"),
+        ("fig-author-network", "Red de coautoría del corpus", "authors-network"),
+    ):
+        png_path = review_dir / "analysis" / "figures" / "png" / f"{stem}.png"
+        svg_path = review_dir / "analysis" / "figures" / "svg" / f"{stem}.svg"
+        if figure_id in manifest_ids or not png_path.exists():
+            continue
+        manifest_rows.append(
+            {
+                "figure_id": figure_id,
+                "title": title,
+                "apa_caption": (
+                    "Figura de análisis estructural del corpus. "
+                    "Su uso en el manuscrito depende de cobertura, estabilidad y valor no redundante."
+                ),
+                "notes": "Activo estructural generado junto al atlas interactivo.",
+                "png_path": png_path.relative_to(review_dir).as_posix(),
+                "svg_path": svg_path.relative_to(review_dir).as_posix() if svg_path.exists() else "",
+            }
+        )
+    ranking = {
+        row.get("figure_id", ""): row
+        for row in read_csv_rows(figures_dir / "figure-ranking.csv")
+    }
+    gate = {
+        row.get("figure_id", ""): row
+        for row in read_csv_rows(figures_dir / "figure-gate.csv")
+    }
+    grouped: dict[str, list[str]] = {
+        "main_body": [],
+        "supplementary": [],
+        "reserve": [],
+    }
+    labels = {
+        "main_body": "Cuerpo propuesto",
+        "supplementary": "Material suplementario",
+        "reserve": "Reserva editorial",
+    }
+    descriptions = {
+        "main_body": "Figuras que mejor sostienen el argumento de esta revisión según valor científico, densidad y no redundancia.",
+        "supplementary": "Visuales útiles para auditoría, réplica o exploración sin ocupar el espacio central del manuscrito.",
+        "reserve": "Activos editables disponibles si la revista, el revisor o una pregunta secundaria justifican su uso.",
+    }
+    for row in manifest_rows:
+        figure_id = (row.get("figure_id") or "").strip()
+        png_path = (row.get("png_path") or "").strip()
+        svg_path = (row.get("svg_path") or "").strip()
+        if not figure_id or not png_path or not (review_dir / png_path).exists():
+            continue
+        decision = (
+            gate.get(figure_id, {}).get("decision")
+            or ranking.get(figure_id, {}).get("recommendation")
+            or "supplementary"
+        ).strip()
+        if decision not in grouped:
+            decision = "reserve"
+        title = html.escape(row.get("title") or figure_id)
+        raw_caption = row.get("apa_caption") or row.get("purpose") or ""
+        raw_caption = re.sub(
+            r"^Figura(?:\s+\d+|\s+adicional|\s+suplementaria)?\.\s*",
+            "",
+            raw_caption,
+            flags=re.IGNORECASE,
+        )
+        caption = html.escape(raw_caption)
+        rationale = html.escape(
+            ranking.get(figure_id, {}).get("rationale")
+            or row.get("notes")
+            or "Activo visual trazable y editable."
+        )
+        png_href = html.escape(figure_asset_href(png_path))
+        svg_href = html.escape(figure_asset_href(svg_path)) if svg_path else ""
+        svg_link = (
+            f'<a href="{svg_href}" download>Descargar SVG</a>'
+            if svg_path and (review_dir / svg_path).exists()
+            else ""
+        )
+        grouped[decision].append(
+            f"""
+            <article class="figure-card">
+              <div class="figure-meta"><span>{html.escape(row.get("paper_section") or "Catálogo visual")}</span><span>{html.escape(decision.replace("_", " "))}</span></div>
+              <a class="preview" href="{png_href}"><img src="{png_href}" alt="{title}" loading="lazy"></a>
+              <div class="figure-copy">
+                <h3>{title}</h3>
+                <p>{caption}</p>
+                <p class="rationale">{rationale}</p>
+                <div class="downloads">
+                  <a href="{png_href}" download>Descargar PNG</a>
+                  {svg_link}
+                </div>
+              </div>
+            </article>
+            """
+        )
+    sections = []
+    for key in ("main_body", "supplementary", "reserve"):
+        if not grouped[key]:
+            continue
+        sections.append(
+            f"""
+            <section>
+              <header class="section-heading">
+                <h2>{labels[key]}</h2>
+                <p>{descriptions[key]}</p>
+              </header>
+              <div class="gallery">{''.join(grouped[key])}</div>
+            </section>
+            """
+        )
+    title = html.escape(review_title(review_dir))
+    gallery_path = figures_dir / "gallery.html"
+    gallery_path.write_text(
+        f"""<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Catálogo de figuras · {title}</title>
+  <style>
+    :root {{ --ink:#20201d; --muted:#66645d; --rule:#c9c7bf; --paper:#fbfaf6; --panel:#fff; --accent:#173f63; }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; color:var(--ink); background:var(--paper); font-family:Georgia,"Times New Roman",serif; }}
+    a {{ color:var(--accent); }}
+    .page {{ width:min(1420px,calc(100% - 40px)); margin:0 auto; }}
+    .masthead {{ padding:46px 0 30px; border-bottom:1px solid var(--ink); }}
+    .eyebrow {{ margin:0 0 14px; color:var(--muted); font:600 12px/1.4 ui-sans-serif,sans-serif; letter-spacing:.12em; text-transform:uppercase; }}
+    h1 {{ max-width:1100px; margin:0; font-size:clamp(38px,5vw,72px); line-height:1.02; font-weight:500; }}
+    .lead {{ max-width:900px; margin:18px 0 0; color:var(--muted); font-size:20px; line-height:1.5; }}
+    section {{ padding:42px 0; border-bottom:1px solid var(--rule); }}
+    .section-heading {{ display:grid; grid-template-columns:minmax(260px,.7fr) minmax(320px,1fr); gap:40px; align-items:start; margin-bottom:24px; }}
+    h2 {{ margin:0; font-size:31px; font-weight:500; }}
+    .section-heading p {{ margin:0; color:var(--muted); font-size:17px; line-height:1.55; }}
+    .gallery {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; }}
+    .figure-card {{ overflow:hidden; background:var(--panel); border:1px solid var(--rule); }}
+    .figure-meta {{ display:flex; justify-content:space-between; gap:16px; padding:10px 14px; border-bottom:1px solid var(--rule); color:var(--muted); font:600 11px/1.2 ui-sans-serif,sans-serif; letter-spacing:.06em; text-transform:uppercase; }}
+    .preview {{ display:block; padding:14px; background:#f3f2ed; border-bottom:1px solid var(--rule); }}
+    .preview img {{ display:block; width:100%; height:auto; background:white; }}
+    .figure-copy {{ padding:20px; }}
+    h3 {{ margin:0 0 9px; font-size:24px; font-weight:500; }}
+    .figure-copy p {{ margin:0 0 12px; font-size:16px; line-height:1.5; }}
+    .rationale {{ color:var(--muted); }}
+    .downloads {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }}
+    .downloads a {{ padding:9px 12px; border:1px solid var(--accent); text-decoration:none; font:600 13px/1 ui-sans-serif,sans-serif; }}
+    .downloads a:hover,.downloads a:focus {{ color:white; background:var(--accent); }}
+    footer {{ padding:24px 0 40px; color:var(--muted); font-size:13px; }}
+    @media (max-width:820px) {{ .gallery,.section-heading {{ grid-template-columns:1fr; }} .page {{ width:min(100% - 22px,1420px); }} }}
+    @media print {{ .downloads {{ display:none; }} .figure-card {{ break-inside:avoid; }} }}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <p class="eyebrow">Catálogo científico de figuras · PNG y SVG editables</p>
+      <h1>{title}</h1>
+      <p class="lead">El catálogo separa propuesta de cuerpo, suplemento y reserva. La decisión se basa en utilidad científica y trazabilidad; una figura no entra en el manuscrito solo por estar disponible.</p>
+    </header>
+    {''.join(sections) if sections else '<section><p>No hay figuras renderizadas disponibles.</p></section>'}
+    <footer>Catálogo autónomo y sin dependencias externas. Los SVG conservan la fuente editable de cada figura.</footer>
+  </main>
+</body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    return gallery_path
 
 
 def build_manifest(review_dir: pathlib.Path) -> dict[str, Any]:
@@ -354,64 +565,55 @@ def render_html(manifest: dict[str, Any], *, link_prefix: str = "") -> str:
   <title>Guía de entrega · {title}</title>
   <style>
     :root {{
-      --ink:#11110f; --paper:#f3eee5; --white:#fffdf8; --yellow:#f7dc68;
-      --blue:#c6d7f4; --green:#cfe4c8; --pink:#f1c9c1; --muted:#706b63;
-      --border:3px solid var(--ink); --shadow:7px 7px 0 var(--ink);
+      --ink:#20201d; --paper:#fbfaf6; --white:#ffffff; --muted:#66645d;
+      --rule:#c9c7bf; --accent:#173f63; --complete:#e9f0e8; --partial:#f6efd9; --missing:#f5e4e1;
     }}
     * {{ box-sizing:border-box; }}
     html {{ scroll-behavior:smooth; }}
-    body {{
-      margin:0; color:var(--ink); background:
-      linear-gradient(90deg, rgba(17,17,15,.045) 1px, transparent 1px),
-      linear-gradient(rgba(17,17,15,.045) 1px, transparent 1px), var(--paper);
-      background-size:28px 28px; font-family:"Arial Narrow","Helvetica Neue",sans-serif;
-    }}
-    a {{ color:inherit; }}
-    .shell {{ width:min(1500px, calc(100% - 36px)); margin:0 auto; }}
-    header {{ padding:28px 0 18px; }}
+    body {{ margin:0; color:var(--ink); background:var(--paper); font-family:Georgia,"Times New Roman",serif; }}
+    a {{ color:var(--accent); }}
+    .shell {{ width:min(1420px, calc(100% - 40px)); margin:0 auto; }}
+    header {{ padding:42px 0 22px; }}
     .strap {{
-      display:flex; justify-content:space-between; gap:20px; padding:10px 14px;
-      color:var(--paper); background:var(--ink); font:700 13px/1.2 ui-monospace,monospace;
-      letter-spacing:.08em; text-transform:uppercase;
+      display:flex; justify-content:space-between; gap:20px; padding:0 0 12px;
+      color:var(--muted); border-bottom:1px solid var(--ink);
+      font:600 12px/1.2 ui-sans-serif,sans-serif; letter-spacing:.1em; text-transform:uppercase;
     }}
-    h1 {{ max-width:1150px; margin:28px 0 14px; font-size:clamp(42px,7vw,104px); line-height:.9; letter-spacing:-.055em; }}
-    .lead {{ max-width:900px; margin:0; font-size:clamp(19px,2vw,29px); line-height:1.25; }}
-    .dashboard {{ display:grid; grid-template-columns:1.4fr repeat(4,1fr); gap:14px; margin:28px 0; }}
-    .metric {{ min-height:116px; padding:16px; background:var(--white); border:var(--border); box-shadow:4px 4px 0 var(--ink); }}
-    .metric:first-child {{ background:var(--yellow); }}
-    .metric span {{ display:block; font:700 11px/1.2 ui-monospace,monospace; letter-spacing:.06em; text-transform:uppercase; }}
-    .metric strong {{ display:block; margin-top:16px; font-size:clamp(26px,3vw,48px); line-height:.9; }}
-    .route {{ display:grid; grid-template-columns:repeat(4,1fr); border:var(--border); margin:34px 0; background:var(--ink); gap:3px; }}
-    .route div {{ min-height:140px; padding:18px; background:var(--white); }}
-    .route div:nth-child(2) {{ background:var(--blue); }}
-    .route div:nth-child(3) {{ background:var(--green); }}
-    .route div:nth-child(4) {{ background:var(--pink); }}
-    .route b {{ display:block; font-size:22px; margin-bottom:10px; }}
-    section {{ padding:24px 0 58px; }}
+    h1 {{ max-width:1160px; margin:30px 0 16px; font-size:clamp(40px,6vw,82px); line-height:1.01; font-weight:500; }}
+    .lead {{ max-width:900px; margin:0; color:var(--muted); font-size:clamp(18px,2vw,24px); line-height:1.45; }}
+    .dashboard {{ display:grid; grid-template-columns:1.3fr repeat(4,1fr); margin:34px 0 24px; border:1px solid var(--rule); background:var(--white); }}
+    .metric {{ min-height:112px; padding:18px; border-right:1px solid var(--rule); }}
+    .metric:last-child {{ border-right:0; }}
+    .metric:first-child {{ background:#eef3f7; }}
+    .metric span {{ display:block; color:var(--muted); font:600 11px/1.2 ui-sans-serif,sans-serif; letter-spacing:.07em; text-transform:uppercase; }}
+    .metric strong {{ display:block; margin-top:18px; font-size:clamp(25px,3vw,42px); line-height:1; font-weight:500; }}
+    .route {{ display:grid; grid-template-columns:repeat(4,1fr); margin:24px 0 36px; border-top:1px solid var(--ink); border-bottom:1px solid var(--ink); }}
+    .route div {{ min-height:124px; padding:19px; border-right:1px solid var(--rule); }}
+    .route div:last-child {{ border-right:0; }}
+    .route b {{ display:block; margin-bottom:10px; font-size:21px; font-weight:500; }}
+    section {{ padding:34px 0 58px; }}
     .section-head {{ display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:20px; }}
-    h2 {{ margin:0; font-size:clamp(32px,4vw,64px); letter-spacing:-.04em; }}
-    .section-head p {{ max-width:530px; margin:0; font-size:17px; line-height:1.35; }}
+    h2 {{ margin:0; font-size:clamp(32px,4vw,52px); font-weight:500; }}
+    .section-head p {{ max-width:570px; margin:0; color:var(--muted); font-size:17px; line-height:1.5; }}
     .grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }}
-    .deliverable {{ display:flex; flex-direction:column; min-height:365px; padding:18px; border:var(--border); box-shadow:var(--shadow); background:var(--white); }}
-    .deliverable:nth-child(4n+1) {{ background:var(--yellow); }}
-    .deliverable:nth-child(4n+2) {{ background:var(--blue); }}
-    .deliverable:nth-child(4n+3) {{ background:var(--green); }}
-    .deliverable:nth-child(4n+4) {{ background:var(--pink); }}
+    .deliverable {{ display:flex; flex-direction:column; min-height:340px; padding:20px; border:1px solid var(--rule); background:var(--white); }}
+    .deliverable.complete {{ border-top:4px solid #657d62; }}
+    .deliverable.partial {{ border-top:4px solid #a58436; }}
+    .deliverable.missing {{ border-top:4px solid #9b5148; }}
     .card-top {{ display:flex; justify-content:space-between; align-items:center; }}
-    .number {{ font-size:48px; font-weight:900; letter-spacing:-.08em; }}
-    .state {{ padding:7px 9px; color:var(--paper); background:var(--ink); font:700 11px/1 ui-monospace,monospace; }}
-    .deliverable.partial .state {{ color:var(--ink); background:var(--paper); border:2px solid var(--ink); }}
-    .deliverable.missing .state {{ color:var(--ink); background:var(--pink); border:2px solid var(--ink); }}
-    h3 {{ margin:18px 0 8px; font-size:28px; letter-spacing:-.025em; }}
-    .deliverable p {{ font-size:17px; line-height:1.4; }}
-    .card-meta {{ display:flex; justify-content:space-between; margin-top:auto; padding-top:20px; border-top:2px solid var(--ink); }}
-    .missing {{ font:700 12px/1.35 ui-monospace,monospace; }}
-    .complete-note {{ font:700 12px/1.35 ui-monospace,monospace; }}
-    .open {{ display:block; margin-top:14px; padding:12px; text-align:center; text-decoration:none; font-weight:900; border:2px solid var(--ink); background:var(--white); }}
-    .open:hover, .open:focus {{ color:var(--paper); background:var(--ink); }}
-    .open.disabled {{ color:var(--muted); background:transparent; cursor:not-allowed; }}
-    .rule {{ margin:10px 0 64px; padding:24px; color:var(--paper); background:var(--ink); border:var(--border); font-size:clamp(20px,2.3vw,34px); line-height:1.2; }}
-    footer {{ display:flex; justify-content:space-between; gap:20px; padding:18px 0 28px; border-top:3px solid var(--ink); font:12px/1.4 ui-monospace,monospace; }}
+    .number {{ color:var(--muted); font-size:38px; font-weight:500; }}
+    .state {{ padding:6px 8px; border:1px solid var(--rule); background:var(--complete); font:600 10px/1 ui-sans-serif,sans-serif; letter-spacing:.05em; }}
+    .deliverable.partial .state {{ background:var(--partial); }}
+    .deliverable.missing .state {{ background:var(--missing); }}
+    h3 {{ margin:18px 0 8px; font-size:26px; font-weight:500; }}
+    .deliverable p {{ font-size:16px; line-height:1.5; }}
+    .card-meta {{ display:flex; justify-content:space-between; margin-top:auto; padding-top:20px; border-top:1px solid var(--rule); }}
+    .missing,.complete-note {{ color:var(--muted); font:600 12px/1.4 ui-sans-serif,sans-serif; }}
+    .open {{ display:block; margin-top:14px; padding:11px; text-align:center; text-decoration:none; font:600 13px/1 ui-sans-serif,sans-serif; border:1px solid var(--accent); }}
+    .open:hover, .open:focus {{ color:white; background:var(--accent); }}
+    .open.disabled {{ color:var(--muted); border-color:var(--rule); cursor:not-allowed; }}
+    .rule {{ margin:10px 0 64px; padding:24px 0; border-top:1px solid var(--ink); border-bottom:1px solid var(--ink); font-size:clamp(20px,2.3vw,30px); line-height:1.35; }}
+    footer {{ display:flex; justify-content:space-between; gap:20px; padding:18px 0 28px; border-top:1px solid var(--ink); color:var(--muted); font:12px/1.4 ui-sans-serif,sans-serif; }}
     @media (max-width:980px) {{
       .dashboard {{ grid-template-columns:repeat(2,1fr); }}
       .dashboard .metric:first-child {{ grid-column:1/-1; }}
@@ -426,7 +628,7 @@ def render_html(manifest: dict[str, Any], *, link_prefix: str = "") -> str:
     }}
     @media print {{
       body {{ background:white; }}
-      .deliverable, .metric {{ box-shadow:none; break-inside:avoid; }}
+      .deliverable,.metric {{ break-inside:avoid; }}
     }}
   </style>
 </head>
@@ -472,6 +674,7 @@ def build_delivery_assets(review_dir: pathlib.Path) -> tuple[pathlib.Path, pathl
     """Write the workspace guide and its machine-readable manifest."""
     package_dir = review_dir / "paper" / "package"
     package_dir.mkdir(parents=True, exist_ok=True)
+    build_figure_gallery(review_dir)
     manifest = build_manifest(review_dir)
     manifest_path = write_json_atomic(package_dir / "deliverables-manifest.json", manifest)
     html_path = package_dir / "index.html"

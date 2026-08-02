@@ -153,16 +153,18 @@ def _decision(row: dict[str, str]) -> str:
 
 
 def _is_focal(row: dict[str, str]) -> bool:
-    for field in (
+    explicit_fields = (
         "selected_for_final_n",
         "selected_for_synthesis",
         "selected",
         "is_focal",
         "focal",
         "include",
-    ):
-        if normalized_key(row.get(field, "")) in FOCAL_FLAGS:
-            return True
+    )
+    for field in explicit_fields:
+        value = normalized_key(row.get(field, ""))
+        if value:
+            return value in FOCAL_FLAGS
     decision = normalized_key(row.get("decision_before_cap", ""))
     return decision in INCLUDED_DECISIONS and bool(first_value(row, "ultraquality_rank", "rank"))
 

@@ -12,15 +12,15 @@ import argparse
 import json
 import os
 import re
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NoReturn
 
 TOKEN_PATTERN = re.compile(r"^[0-9]+:[A-Za-z0-9_-]{20,}$")
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise SystemExit(message)
 
 

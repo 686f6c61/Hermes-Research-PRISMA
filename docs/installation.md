@@ -30,8 +30,8 @@ Descarga el ZIP y su archivo `.sha256` desde la misma release. Verifica antes
 de descomprimir:
 
 ```bash
-shasum -a 256 -c hermes-research-pack-vX.Y.Z-*.zip.sha256
-unzip hermes-research-pack-vX.Y.Z-*.zip
+shasum -a 256 -c hermes-research-pack-vX.Y.Z.zip.sha256
+unzip hermes-research-pack-vX.Y.Z.zip
 cd hermes-research-pack
 ```
 
@@ -100,11 +100,13 @@ comandos internos ni archivos Python.
 
 ## APIs académicas
 
-OpenAlex, Crossref, OpenAIRE, Europe PMC y arXiv funcionan sin API key. El
-asistente también permite configurar:
+Crossref, OpenAIRE, Europe PMC y arXiv funcionan sin API key. OpenAlex permite
+una cuota anónima pequeña, pero para una revisión real conviene configurar su
+clave gratuita. El asistente también permite configurar:
 
 - un email técnico privado para acceso cortés;
 - email de Unpaywall para localizar texto completo abierto;
+- API key gratuita recomendada de OpenAlex;
 - API key opcional de Semantic Scholar;
 - API key opcional de Lens Scholarly;
 - email y API key opcional de NCBI/PubMed;
@@ -145,14 +147,36 @@ Para un host limitado:
 ```
 
 `smoke-test` es obligatorio. `capability-test` prueba texto, JSON e identidad
-efectiva de los modelos; `multimodal-test` valida visión y `docling-test`
-comprueba extracción estructurada. No inicies un corpus costoso si falla una
-capacidad que vaya a usar el protocolo.
+efectiva de los modelos; `multimodal-test` valida visión y, cuando recibe una
+revisión real, localiza automáticamente el PDF material más reciente y
+contrasta el título recuperado desde la imagen de su primera página con la capa
+textual del documento. El comprobante queda en
+`paper/audit/multimodal-pdf-verification.json`. `docling-test` comprueba
+extracción estructurada. No inicies un corpus costoso si falla una capacidad que
+vaya a usar el protocolo.
 
 El smoke test usa un modo interno acotado: consulta OpenAlex y Crossref, escribe
 registros reales y termina antes del cribado intensivo. No deja una revisión
 editorial consumiendo inferencia en segundo plano. Ese límite no se aplica a
 una revisión normal.
+
+## Capacidades de análisis de 0.6.0
+
+Tras completar una revisión, estas capas se generan dentro del ciclo y también
+pueden reconstruirse explícitamente:
+
+```bash
+./hermes-research intelligence <review>
+./hermes-research memory <review>
+./hermes-research code-audit <review>
+./hermes-research package <review>
+```
+
+`intelligence` ordena posiciones de evidencia y prioridad de lectura sin
+cambiar la selección. `memory` conserva contexto privado entre revisiones sin
+heredar decisiones. `code-audit` es opcional y no ejecuta repositorios ajenos.
+`package` actualiza el atlas cuando sea necesario y entrega la galería visual,
+GraphML, exportación GEXF, Markdown, LaTeX, PDF y anexos saneados.
 
 ## Pausas por discrepancia
 

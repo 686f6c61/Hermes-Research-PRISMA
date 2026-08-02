@@ -80,6 +80,56 @@ def test_checkpoint_is_reused_only_for_identical_protocol_and_evidence(
     assert pipeline.load_full_text_review_checkpoint(review_dir, changed) is None
 
 
+def test_each_reviewer_has_an_independent_resumable_checkpoint(
+    tmp_path: pathlib.Path,
+    monkeypatch,
+) -> None:
+    pipeline = load_pipeline(monkeypatch)
+    review_dir = materialize_review(tmp_path)
+    candidates = [
+        {
+            "record_id": "doi:10.1000/one",
+            "assigned_doi": "10.1000/one",
+            "full_text_text": "Stable full-text evidence.",
+        },
+        {
+            "record_id": "doi:10.1000/two",
+            "assigned_doi": "10.1000/two",
+            "full_text_text": "Second stable evidence body.",
+        },
+    ]
+    first_result = {
+        "doi:10.1000/one": {
+            "decision": "include",
+            "reason": "eligible",
+        }
+    }
+
+    pipeline.write_partial_full_text_reviewer_checkpoint(
+        review_dir,
+        candidates,
+        "reviewer_a",
+        first_result,
+    )
+
+    assert pipeline.load_partial_full_text_reviewer_checkpoint(
+        review_dir,
+        candidates,
+        "reviewer_a",
+    ) == first_result
+    assert pipeline.load_partial_full_text_reviewer_checkpoint(
+        review_dir,
+        candidates,
+        "reviewer_b",
+    ) == {}
+    changed = [{**candidates[0], "full_text_text": "Changed evidence."}, candidates[1]]
+    assert pipeline.load_partial_full_text_reviewer_checkpoint(
+        review_dir,
+        changed,
+        "reviewer_a",
+    ) == {}
+
+
 def test_signed_choice_applies_to_the_exact_preserved_case(
     tmp_path: pathlib.Path,
     monkeypatch,

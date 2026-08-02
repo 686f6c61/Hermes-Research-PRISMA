@@ -34,6 +34,21 @@ Agent sin reemplazar módulos de su núcleo.
 10. Comprueba una revisión existente con `status`, `disagreements` y
     `amendment` antes de reanudarla.
 
+## Comprobaciones al actualizar a 0.6.0
+
+1. Ejecuta `./hermes-research intelligence <review>` sobre una revisión
+   existente y confirma que genera posiciones y prioridad de lectura sin
+   modificar las decisiones de cribado.
+2. Ejecuta `./hermes-research package <review>` y abre
+   `figures/gallery.html` y `analysis/atlas/network-atlas.html`.
+3. Comprueba que el manuscrito propone hasta cuatro figuras por defecto, o
+   cinco figuras sustantivas en el subperfil de seguridad, y que el resto
+   permanece disponible como suplemento.
+4. Confirma que `.hermes/research-memory.json` sigue privado y que
+   `notes/artifact-lineage.json` solo contiene rutas relativas.
+5. Si activas `code-audit`, empieza sin `--inspect-remote`; no se debe clonar ni
+   ejecutar código de artículos.
+
 ## Retroceso
 
 Si falla la validación:

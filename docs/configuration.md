@@ -21,8 +21,13 @@ Usa `./hermes-research setup` para los cambios habituales.
 | `HERMES_MODEL_PRIMARY` | Planificación, extracción, síntesis y escritura. |
 | `HERMES_MODEL_VISION` | Lectura de páginas, tablas y figuras. |
 | `HERMES_MODEL_REVIEW` | Revisión independiente y crítica editorial. |
+| `HERMES_JSON_RESPONSE_FORMAT` | Activa `json_object` cuando el proveedor lo haya validado. |
+| `HERMES_REASONING_EFFORT` | Control opcional (`none`, `minimal`, `low`, `medium`, `high`) si el endpoint lo soporta. |
 
-Los identificadores deben coincidir exactamente con `GET /models`.
+Los identificadores deben coincidir exactamente con `GET /models`. Las dos
+opciones de salida estructurada permanecen vacías por defecto: se activan solo
+después de que `capability-test` confirme que el proveedor acepta esos
+parámetros sin sustituir el modelo solicitado.
 
 ## Identidad y decisiones firmadas
 
@@ -59,6 +64,7 @@ habilites acceso global en una instalación pública.
 |---|---|
 | `HERMES_CONTACT_EMAIL` | Identidad técnica privada para APIs con acceso cortés. |
 | `HERMES_UNPAYWALL_EMAIL` | Email exigido por Unpaywall para resolver acceso abierto. |
+| `HERMES_OPENALEX_API_KEY` | Clave gratuita recomendada para ampliar el presupuesto diario de búsquedas de OpenAlex. |
 | `HERMES_ENABLE_SEMANTIC_SCHOLAR` | Permite acceso sin key, sujeto a rate limits. |
 | `HERMES_SEMANTIC_SCHOLAR_API_KEY` | Credencial opcional de Semantic Scholar. |
 | `HERMES_LENS_API_KEY` | Credencial opcional de Lens Scholarly. |
@@ -127,7 +133,7 @@ documentada.
 | `HERMES_DOCLING_ENABLED` | `auto` usa el servicio si está healthy. |
 | `HERMES_DOCLING_API_KEY` | Secreto local generado para autenticar gateway, healthcheck y worker. |
 | `DOCLING_SERVE_URL` | URL interna del worker. |
-| `HERMES_DOCLING_DOCUMENT_TIMEOUT` | Límite por documento. |
+| `HERMES_DOCLING_DOCUMENT_TIMEOUT` | Límite por documento; el valor distribuido es 600 segundos para no truncar PDF densos. |
 | `HERMES_DOCLING_MAX_FILE_MB` | Tamaño máximo enviado. |
 | `HERMES_DOCLING_DOCUMENT_LIMIT` | `0` procesa todos los focales. |
 | `DOCLING_SERVE_MAX_NUM_PAGES` | Protección por número de páginas. |
@@ -136,6 +142,7 @@ documentada.
 | `DOCLING_SERVE_MAX_SYNC_WAIT` | Espera máxima de una llamada síncrona, en segundos. |
 | `DOCLING_NUM_THREADS` | Paralelismo CPU. |
 | `DOCLING_PERF_PAGE_BATCH_SIZE` | Número de páginas procesadas por lote. |
+| `HERMES_PUBLICATION_AUDIT_TIMEOUT` | Límite global opcional. Si queda vacío, se calcula con el N focal y el límite por PDF. |
 
 La imagen de Docling está fijada por digest en `.env.example`. La API key no se
 publica ni se reutiliza como credencial de inferencia. Cambiar la imagen exige

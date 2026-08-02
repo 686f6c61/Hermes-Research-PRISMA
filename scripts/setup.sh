@@ -84,6 +84,7 @@ telegram_home_channel="${TELEGRAM_HOME_CHANNEL:-$(env_value TELEGRAM_HOME_CHANNE
 telegram_prisma_chat_id="${TELEGRAM_PRISMA_CHAT_ID:-$(env_value TELEGRAM_PRISMA_CHAT_ID)}"
 contact_email="${HERMES_CONTACT_EMAIL:-$(env_value HERMES_CONTACT_EMAIL)}"
 unpaywall_email="${HERMES_UNPAYWALL_EMAIL:-$(env_value HERMES_UNPAYWALL_EMAIL)}"
+openalex_key="${HERMES_OPENALEX_API_KEY:-$(env_value HERMES_OPENALEX_API_KEY)}"
 semantic_scholar_key="${HERMES_SEMANTIC_SCHOLAR_API_KEY:-$(env_value HERMES_SEMANTIC_SCHOLAR_API_KEY)}"
 lens_key="${HERMES_LENS_API_KEY:-$(env_value HERMES_LENS_API_KEY)}"
 ncbi_email="${HERMES_NCBI_EMAIL:-$(env_value HERMES_NCBI_EMAIL)}"
@@ -116,6 +117,7 @@ api_key="$(prompt_secret "API key del proveedor" "${api_key}")"
 printf '\nFuentes académicas: las credenciales siguientes son opcionales.\n' >&2
 contact_email="$(prompt_value "Email técnico de contacto para APIs académicas" "${contact_email}")"
 unpaywall_email="$(prompt_value "Email para Unpaywall (opcional)" "${unpaywall_email:-${contact_email}}")"
+openalex_key="$(prompt_secret "API key gratuita de OpenAlex (recomendada)" "${openalex_key}")"
 semantic_scholar_key="$(prompt_secret "API key de Semantic Scholar (opcional)" "${semantic_scholar_key}")"
 lens_key="$(prompt_secret "API key de Lens Scholarly (opcional)" "${lens_key}")"
 ncbi_email="$(prompt_value "Email para NCBI/PubMed (opcional)" "${ncbi_email:-${contact_email}}")"
@@ -210,6 +212,7 @@ export SETUP_TELEGRAM_HOME_CHANNEL="${telegram_home_channel}"
 export SETUP_TELEGRAM_PRISMA_CHAT_ID="${telegram_prisma_chat_id}"
 export SETUP_CONTACT_EMAIL="${contact_email}"
 export SETUP_UNPAYWALL_EMAIL="${unpaywall_email}"
+export SETUP_OPENALEX_KEY="${openalex_key}"
 export SETUP_SEMANTIC_SCHOLAR_KEY="${semantic_scholar_key}"
 export SETUP_LENS_KEY="${lens_key}"
 export SETUP_NCBI_EMAIL="${ncbi_email}"
@@ -250,6 +253,7 @@ updates = {
     "TELEGRAM_PRISMA_CHAT_ID": os.environ["SETUP_TELEGRAM_PRISMA_CHAT_ID"],
     "HERMES_CONTACT_EMAIL": os.environ["SETUP_CONTACT_EMAIL"],
     "HERMES_UNPAYWALL_EMAIL": os.environ["SETUP_UNPAYWALL_EMAIL"],
+    "HERMES_OPENALEX_API_KEY": os.environ["SETUP_OPENALEX_KEY"],
     "HERMES_ENABLE_SEMANTIC_SCHOLAR": "1",
     "HERMES_SEMANTIC_SCHOLAR_API_KEY": os.environ["SETUP_SEMANTIC_SCHOLAR_KEY"],
     "HERMES_LENS_API_KEY": os.environ["SETUP_LENS_KEY"],
@@ -290,7 +294,7 @@ path.write_text("\n".join(rendered) + "\n", encoding="utf-8")
 path.chmod(0o600)
 PY
 
-unset SETUP_API_KEY SETUP_TELEGRAM_TOKEN SETUP_SEMANTIC_SCHOLAR_KEY SETUP_LENS_KEY SETUP_NCBI_KEY
+unset SETUP_API_KEY SETUP_TELEGRAM_TOKEN SETUP_OPENALEX_KEY SETUP_SEMANTIC_SCHOLAR_KEY SETUP_LENS_KEY SETUP_NCBI_KEY
 unset SETUP_SCOPUS_KEY SETUP_ELSEVIER_INST_TOKEN SETUP_WOS_KEY SETUP_EMBASE_KEY SETUP_IEEE_KEY
 unset SETUP_ADJUDICATION_SECRET SETUP_DOCLING_API_KEY
 pass "Configuración guardada en .env con permisos 600"

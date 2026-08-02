@@ -4,6 +4,120 @@ All notable changes to Hermes Research Pack are documented here. The project
 uses semantic versioning for its public wrapper, plugin contract and release
 bundle.
 
+## Unreleased
+
+No changes yet.
+
+## 0.6.0 - 2026-08-02
+
+### Added
+
+- Evidence-position matrices that distinguish convergence, directional
+  disagreement, null findings, qualified patterns and open questions.
+- A reading-priority queue based on relevance, method transparency, evidence
+  readiness, reproducibility and contrast, with zero bibliometric weight and
+  no effect on eligibility.
+- An optional, read-only paper-code audit that inventories declared
+  repositories without cloning, installing, importing or executing them.
+- SHA-256 artifact lineage across pipeline inputs and outputs.
+- Private cross-review memory for queries, DOI, constructs and precedents,
+  with decision reuse explicitly forbidden.
+- CLI commands `intelligence`, `code-audit` and `memory`.
+- An academic, offline figure gallery with publication PNG, editable SVG,
+  scientific rationale and body/supplement/reserve decisions.
+- Evidence-maturity, topic-network and coauthorship-network visuals as part of
+  the review figure portfolio.
+- A deterministic scientific figure gate that proposes up to four
+  non-redundant visuals by default, or five substantive visuals for the
+  security-harness profile, and retains the rest as downloadable supplementary
+  material.
+- A publication-oriented offline delivery index and atlas with accessible
+  tables, downloadable PNG/SVG assets and GraphML/GEXF interoperability.
+- A technical security-harness subprofile that extracts threat, control
+  architecture, enforcement point, attacker adaptivity, security metrics,
+  false positives, utility, latency, cost, robustness and failure modes.
+- A security comparison matrix and conditional-dominance frontier that refuse
+  to declare a universal winner across incompatible threats, baselines or
+  operational trade-offs.
+- Bilingual security taxonomies for prompt injection, jailbreak, tool and
+  memory poisoning, exfiltration, operational control families and enforcement
+  boundaries.
+- A real-PDF multimodal acceptance artifact that renders the first page of a
+  scientific document, asks the configured vision model to recover its title
+  and compares that answer with the document text layer.
+- A dedicated product download page that explains the complete distribution,
+  links the versioned ZIP and checksum directly, and separates package
+  inspection from installation guidance.
+
+### Changed
+
+- The manuscript results layer now reports evidence convergence,
+  disagreements and open questions from extracted full text.
+- Statistical direction and practical valence are now separate; cross-context
+  alignment and descriptive alignment cannot be mislabeled as direct
+  convergence.
+- Delivery and schema contracts include scientific-intelligence outputs and
+  public lineage while excluding private cross-review context.
+- Direct intelligence, memory and paper-code commands now update resumable
+  pipeline state; private memory transitions are removed from public state and
+  lineage exports.
+- Publication packaging avoids catastrophic path-sanitizer backtracking on
+  large CSV cells while preserving local-path and internal-ID removal.
+- Figure PNGs render at 2400 px by default, while the delivery index and
+  structural atlas use a sober publication-oriented visual language.
+- `package` rebuilds a missing or stale structural atlas before creating the
+  ZIP, so interactive analysis cannot be advertised as an empty deliverable.
+- LaTeX exports pin approved figures beside their explanatory text, constrain
+  them to the printable area and synchronize manuscript-local assets from the
+  canonical figure portfolio.
+- The public package now treats the generated figure gallery, scientific
+  intelligence and structural network analysis as first-class deliverables.
+- Security-harness readiness now separates quantified effects, qualitative
+  signals and metric mentions. Conditional dominance requires a quantified
+  security outcome and a quantified operational trade-off.
+- Official release archives now use the stable
+  `hermes-research-pack-vX.Y.Z.zip` filename so documentation and product
+  download links resolve to one reproducible asset.
+
+### Fixed
+
+- Removed stale PRISMA images, obsolete figure copies, `.DS_Store` files and
+  placeholder markers from publication and editable-LaTeX archives.
+- Prevented old manuscript-local assets from surviving a later figure
+  regeneration.
+- Kept the bundled systematic-review template inside public ZIP files while
+  excluding only root-level generated review workspaces.
+- Distinguished pending full-text retrievals from attempted failures in
+  resumable manifests, preventing interrupted runs from skipping PDFs that had
+  never been requested.
+- Added bounded JSON retries for malformed or truncated full-text judgments,
+  plus opt-in structured-output and reasoning controls for providers that pass
+  the capability contract.
+- Prevented the visual and independent-review models from acting as silent
+  fallbacks for the primary scientific role.
+- Applied the same bounded structured-output recovery to deep extraction and
+  stopped doubling output budgets when reasoning is explicitly disabled.
+- Hardened screening and extraction prompts so adversarial payloads reproduced
+  inside security papers are treated as untrusted evidence, never instructions.
+- Froze focal ranking before deep extraction so resumed runs cannot change the
+  selected set merely because some candidates already have richer cached
+  fields.
+- Preserved canonical DOI, author, title, year and keyword identity when model
+  extraction rows are merged from cache.
+- Stopped treating section headings, table references, non-adaptive attack
+  labels and negative artifact statements as positive comparison evidence.
+- Replaced the synthetic-only vision check with a scientific-page verification
+  that records the effective model and result without storing credentials.
+
+### Security
+
+- Public bundle manifests are recomputed after DOI/path sanitization and now
+  exclude private cross-review memory, hidden operating-system files and stale
+  generated assets.
+- Release staging rejects virtual environments, local databases, credentials,
+  runtime workspaces, nested archives and machine-specific caches before any
+  manifest or ZIP is written.
+
 ## 0.5.1 - 2026-08-01
 
 ### Changed

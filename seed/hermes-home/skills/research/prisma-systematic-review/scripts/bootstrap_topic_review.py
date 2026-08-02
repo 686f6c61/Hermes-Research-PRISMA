@@ -55,6 +55,18 @@ OPENAIRE_URL = "https://api.openaire.eu/graph/v2/researchProducts"
 PUBMED_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 LENS_SCHOLAR_URL = "https://api.lens.org/scholarly/search"
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+HOST_MIN_INTERVAL_SECONDS = {
+    "api.openalex.org": 0.25,
+    "api.crossref.org": 0.25,
+    "api.semanticscholar.org": 1.0,
+    "export.arxiv.org": 3.0,
+    "api.openaire.eu": 0.5,
+    "www.ebi.ac.uk": 0.35,
+    "eutils.ncbi.nlm.nih.gov": 0.35,
+}
+_LAST_HTTP_REQUEST_AT: dict[str, float] = {}
+_HTTP_CIRCUIT_ERRORS: dict[str, str] = {}
 SOURCE_PRIORITY = {
     "openalex": 7,
     "lens": 6,
@@ -438,7 +450,10 @@ def normalize_doi(text: str) -> str:
     value = text.strip()
     value = re.sub(r"^https?://(dx\.)?doi\.org/", "", value, flags=re.I)
     value = re.sub(r"^doi:\s*", "", value, flags=re.I)
-    return value.lower()
+    value = value.lower()
+    # arXiv Atom IDs carry a version suffix, while the registered DataCite DOI
+    # identifies the work independently of that source-version marker.
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", value)
 
 
 def stable_record_key(row: dict[str, str]) -> str:
@@ -594,9 +609,80 @@ def criteria_to_bullets(raw: str, fallback: str) -> list[str]:
     return [f"- {token}" for token in tokens]
 
 
+def http_retry_settings() -> tuple[int, float, float]:
+    """Return bounded retry settings, allowing fast deterministic tests."""
+
+    attempts = max(1, int(os.environ.get("HERMES_HTTP_RETRY_ATTEMPTS", "5")))
+    base_seconds = max(0.0, float(os.environ.get("HERMES_HTTP_RETRY_BASE_SECONDS", "2")))
+    max_seconds = max(base_seconds, float(os.environ.get("HERMES_HTTP_RETRY_MAX_SECONDS", "30")))
+    return attempts, base_seconds, max_seconds
+
+
+def throttle_request(url: str) -> None:
+    """Respect conservative per-host intervals before scholarly API calls."""
+
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    minimum = HOST_MIN_INTERVAL_SECONDS.get(host, 0.0)
+    previous = _LAST_HTTP_REQUEST_AT.get(host)
+    if previous is not None and minimum:
+        wait_seconds = minimum - (time.monotonic() - previous)
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+    _LAST_HTTP_REQUEST_AT[host] = time.monotonic()
+
+
+def retry_after_seconds(exc: urllib.error.HTTPError) -> float | None:
+    """Parse numeric Retry-After values without trusting arbitrary headers."""
+
+    raw = (exc.headers or {}).get("Retry-After", "")
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def open_with_retry(request: urllib.request.Request, timeout: int):
+    """Open one HTTP request with bounded retry and transparent backoff."""
+
+    attempts, base_seconds, max_seconds = http_retry_settings()
+    host = (urllib.parse.urlparse(request.full_url).hostname or "").lower()
+    if host in _HTTP_CIRCUIT_ERRORS:
+        raise RuntimeError(f"circuit open for {host}: {_HTTP_CIRCUIT_ERRORS[host]}")
+    if host == "api.openalex.org" and "api_key=" not in request.full_url:
+        # Anonymous OpenAlex searches have a small daily budget. Retrying the
+        # same exhausted quota five times only delays the remaining sources.
+        attempts = min(attempts, 2)
+        max_seconds = min(max_seconds, 5.0)
+    header_names = {str(key).lower() for key in request.headers}
+    if host == "api.semanticscholar.org" and "x-api-key" not in header_names:
+        attempts = min(attempts, 2)
+        max_seconds = min(max_seconds, 5.0)
+    for attempt in range(1, attempts + 1):
+        throttle_request(request.full_url)
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRYABLE_HTTP_STATUS or attempt >= attempts:
+                if exc.code in RETRYABLE_HTTP_STATUS:
+                    _HTTP_CIRCUIT_ERRORS[host] = f"HTTP {exc.code} after {attempt} attempts"
+                raise
+            provider_delay = retry_after_seconds(exc)
+            exponential = min(max_seconds, base_seconds * (2 ** (attempt - 1)))
+            # A small deterministic offset avoids synchronized retries while
+            # keeping the acquisition trace reproducible.
+            delay = min(max_seconds, max(provider_delay or 0.0, exponential) + (0.1 * attempt))
+            host = urllib.parse.urlparse(request.full_url).netloc
+            print(
+                f"[http] {host} returned {exc.code}; retry {attempt + 1}/{attempts} "
+                f"after {delay:.1f}s",
+                flush=True,
+            )
+            time.sleep(delay)
+
+
 def fetch_json(url: str, headers: dict[str, str] | None = None, timeout: int = 25) -> dict | list:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with open_with_retry(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="ignore"))
 
 
@@ -607,13 +693,13 @@ def post_json(url: str, payload: dict[str, object], headers: dict[str, str] | No
         headers={"User-Agent": USER_AGENT, "Content-Type": "application/json", **(headers or {})},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with open_with_retry(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8", errors="ignore"))
 
 
 def fetch_text(url: str, headers: dict[str, str] | None = None, timeout: int = 25) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with open_with_retry(req, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="ignore")
 
 
@@ -1465,6 +1551,254 @@ def is_corporate_political_leadership_scope(topic: str, question: str, inclusion
     )
 
 
+def is_ai_security_harness_scope(topic: str, question: str, inclusion: str = "") -> bool:
+    """Return true when the review targets operational AI security controls."""
+
+    scope_lower = f"{topic or ''} {question or ''} {inclusion or ''}".lower()
+    ai_scope = any(
+        token in scope_lower
+        for token in (
+            "llm",
+            "large language model",
+            "modelo generativo",
+            "modelos generativos",
+            "generative ai",
+            "multimodal",
+            "agentic",
+            "agent",
+            "agente",
+            "agéntic",
+        )
+    )
+    security_scope = any(
+        token in scope_lower
+        for token in (
+            "security",
+            "seguridad",
+            "safety",
+            "prompt injection",
+            "jailbreak",
+            "data exfiltration",
+            "fuga de datos",
+            "policy violation",
+            "violaciones de políticas",
+        )
+    )
+    control_scope = any(
+        token in scope_lower
+        for token in (
+            "harness",
+            "guardrail",
+            "firewall",
+            "runtime",
+            "enforcement",
+            "control",
+            "defense",
+            "defensa",
+            "sandbox",
+            "verifier",
+            "verificador",
+        )
+    )
+    return ai_scope and security_scope and control_scope
+
+
+def ai_security_harness_staged_decomposition(
+    topic: str,
+    question: str,
+    inclusion: str,
+    exclusion: str,
+    fallback_plan: dict[str, list[str]],
+) -> dict[str, object]:
+    """Build a threat-and-control search plan for AI security harnesses."""
+
+    stage_templates = [
+        {
+            "stage_id": "S1",
+            "name": "Harness, guardrails y enforcement en runtime",
+            "purpose": (
+                "Identificar capas operacionales que median entradas, salidas, herramientas "
+                "o políticas sin confundirlas con el alineamiento del modelo base."
+            ),
+            "axis_covered": [
+                "arquitectura defensiva",
+                "punto de enforcement",
+                "runtime",
+                "guardrails",
+            ],
+            "queries": [
+                '"LLM security guardrails" evaluation',
+                '"large language model" "runtime guardrail" security',
+                '"AI agent" "security harness"',
+                '"LLM firewall" evaluation',
+                '"policy enforcement" "LLM agent"',
+                '"defense in depth" "large language model"',
+            ],
+        },
+        {
+            "stage_id": "S2",
+            "name": "Prompt injection, jailbreak y ataques adaptativos",
+            "purpose": (
+                "Comparar defensas frente a ataques directos, indirectos y adaptativos, "
+                "con amenaza, baseline y attack success rate recuperables."
+            ),
+            "axis_covered": [
+                "prompt injection",
+                "jailbreak",
+                "ataque adaptativo",
+                "attack success rate",
+            ],
+            "queries": [
+                '"prompt injection defense" evaluation LLM',
+                '"indirect prompt injection" defense agent',
+                '"jailbreak defense" "adaptive attack" LLM',
+                '"adversarial prompt detection" large language model',
+                '"universal jailbreak" defense evaluation',
+                '"prompt injection" guardrail benchmark',
+            ],
+        },
+        {
+            "stage_id": "S3",
+            "name": "Herramientas, sandboxing y exfiltración",
+            "purpose": (
+                "Recuperar controles sobre acciones del agente, invocación de herramientas, "
+                "datos, memoria y recuperación, donde una salida insegura puede convertirse en daño."
+            ),
+            "axis_covered": [
+                "tool use",
+                "sandbox",
+                "data exfiltration",
+                "memory poisoning",
+            ],
+            "queries": [
+                '"LLM agent" "tool use security" sandbox',
+                '"agentic AI" runtime policy enforcement',
+                '"LLM agent" "data exfiltration" defense',
+                '"tool invocation" guardrails LLM',
+                '"capability control" "LLM agents"',
+                '"memory poisoning" defense "LLM agent"',
+            ],
+        },
+        {
+            "stage_id": "S4",
+            "name": "Eficacia, utilidad, coste y robustez",
+            "purpose": (
+                "Exigir comparaciones multiobjetivo: seguridad, falsos positivos, utilidad, "
+                "latencia, coste, robustez y degradación bajo atacantes adaptativos."
+            ),
+            "axis_covered": [
+                "eficacia",
+                "falsos positivos",
+                "utilidad",
+                "latencia",
+                "coste",
+                "robustez",
+            ],
+            "queries": [
+                '"LLM guardrail benchmark" "false positive" utility',
+                '"LLM safety filter" "adaptive attack" robustness',
+                '"LLM defense" baseline "attack success rate"',
+                '"runtime guardrail" cost latency evaluation',
+                '"secure LLM agent" benchmark utility',
+                '"LLM safety" defense ablation evaluation',
+            ],
+        },
+        {
+            "stage_id": "S5",
+            "name": "Implementaciones y reproducibilidad",
+            "purpose": (
+                "Localizar evaluaciones de implementaciones identificables y comprobar si "
+                "la superioridad reportada puede reconstruirse, compararse o replicarse."
+            ),
+            "axis_covered": [
+                "implementación",
+                "baseline",
+                "código",
+                "reproducibilidad",
+            ],
+            "queries": [
+                '"NeMo Guardrails" evaluation security',
+                '"Llama Guard" benchmark',
+                '"Guardrails AI" security evaluation',
+                '"open source LLM guardrails" comparison',
+                '"LLM guardrail" reproducibility',
+                '"AI agent security" benchmark defense',
+            ],
+        },
+    ]
+    stages = [
+        {
+            "stage_id": template["stage_id"],
+            "name": template["name"],
+            "purpose": template["purpose"],
+            "axis_covered": template["axis_covered"],
+            "queries_by_source": source_query_bundle(template["queries"], limit=6),
+        }
+        for template in stage_templates
+    ]
+    if fallback_plan:
+        stages.append(
+            {
+                "stage_id": "S6",
+                "name": "Cobertura base y sensibilidad",
+                "purpose": (
+                    "Conservar el plan base solo como control de sensibilidad después de "
+                    "agotar las consultas específicas de amenaza y defensa."
+                ),
+                "axis_covered": ["cobertura", "sensibilidad"],
+                "queries_by_source": fallback_plan,
+            }
+        )
+    return {
+        "planner": "deterministic-ai-security-harness-profile",
+        "planner_model": "",
+        "question": question,
+        "topic": topic,
+        "question_axes": {
+            "population_context": [
+                "LLM",
+                "modelos generativos",
+                "modelos multimodales",
+                "sistemas agénticos",
+            ],
+            "exposure_construct": [
+                "harness de seguridad",
+                "guardrails de entrada y salida",
+                "policy enforcement",
+                "sandboxing de herramientas",
+                "verificadores y monitorización",
+            ],
+            "outcome_decision": [
+                "attack success rate",
+                "violaciones de política",
+                "fuga de datos",
+                "falsos positivos",
+                "utilidad",
+                "latencia",
+                "coste",
+                "robustez adaptativa",
+            ],
+            "evidence_method": [
+                "evaluación comparativa",
+                "baseline",
+                "ataque adaptativo",
+                "ablación",
+                "validación externa",
+                "reproducibilidad",
+            ],
+            "threat_models": [
+                "prompt injection",
+                "jailbreak",
+                "tool misuse",
+                "data exfiltration",
+                "memory or retrieval poisoning",
+            ],
+            "boundaries": [inclusion, exclusion],
+        },
+        "search_stages": stages,
+    }
+
+
 def corporate_political_staged_decomposition(
     topic: str,
     question: str,
@@ -1973,7 +2307,15 @@ def build_deterministic_search_decomposition(
     """Build the reproducible search plan without waiting for a model call."""
     mode_decision = mode_decision or infer_review_mode(topic=topic, question=question, inclusion=inclusion, exclusion=exclusion)
     fallback_plan = normalize_plan(query_plan(topic, question, inclusion))
-    if is_corporate_political_leadership_scope(topic, question, inclusion):
+    if is_ai_security_harness_scope(topic, question, inclusion):
+        fallback = ai_security_harness_staged_decomposition(
+            topic,
+            question,
+            inclusion,
+            exclusion,
+            fallback_plan,
+        )
+    elif is_corporate_political_leadership_scope(topic, question, inclusion):
         fallback = corporate_political_staged_decomposition(topic, question, inclusion, exclusion, fallback_plan)
     else:
         fallback = generic_staged_decomposition(topic, question, inclusion, exclusion, fallback_plan, mode_decision)
@@ -2005,6 +2347,26 @@ def build_search_decomposition(
     normalized["review_mode"] = mode_decision.get("mode") or normalized.get("review_mode", "")
     normalized["review_mode_label"] = mode_decision.get("mode_label") or normalized.get("review_mode_label", "")
     normalized["question_framework"] = mode_decision.get("default_framework") or normalized.get("question_framework", "")
+    if is_ai_security_harness_scope(topic, question, inclusion):
+        # The model is useful for validating the axes, but broad architecture
+        # queries must never consume the source budget before threat-and-control
+        # queries. Keep the tested specialist plan as the executable authority.
+        specialist = dict(fallback)
+        specialist["review_mode"] = normalized.get("review_mode", "")
+        specialist["review_mode_label"] = normalized.get("review_mode_label", "")
+        specialist["question_framework"] = normalized.get("question_framework", "")
+        if normalized is not fallback:
+            specialist["planner"] = "deterministic-ai-security-harness-profile+llm-axis-validation"
+            specialist["planner_model"] = normalized.get("planner_model", "")
+            specialist["planner_validation"] = {
+                "status": "completed",
+                "model_axes": normalized.get("question_axes", {}),
+                "policy": (
+                    "Model-proposed queries cannot precede the specialist "
+                    "threat-and-control plan."
+                ),
+            }
+        return specialist
     if normalized is not fallback and fallback_plan:
         # Keep the deterministic base as a sensitivity stage. LLM planners can be
         # precise but occasionally omit a synonym family; this guard preserves recall.
@@ -2226,6 +2588,8 @@ def write_search_decomposition_files(review_dir: pathlib.Path, decomposition: di
 def fetch_openalex(from_date: str, to_date: str, queries: list[str], topic: str) -> tuple[list[dict], list[dict[str, str]]]:
     items: OrderedDict[str, dict] = OrderedDict()
     search_rows: list[dict[str, str]] = []
+    api_key = optional_source_key("HERMES_OPENALEX_API_KEY", "OPENALEX_API_KEY")
+    blocked_note = ""
     for idx, query in enumerate(queries, start=1):
         print(f"[search] OpenAlex {idx}/{len(queries)}: {query}", flush=True)
         params = {
@@ -2233,16 +2597,32 @@ def fetch_openalex(from_date: str, to_date: str, queries: list[str], topic: str)
             "filter": f"from_publication_date:{from_date},to_publication_date:{to_date}",
             "per-page": str(PUBLIC_API_PAGE_SIZE),
         }
+        if api_key:
+            params["api_key"] = api_key
         add_contact_param(params)
         url = OPENALEX_URL + "?" + urllib.parse.urlencode(params)
-        try:
-            data = fetch_json(url)
-            raw_results = data.get("results", []) if isinstance(data, dict) else []
-            results = [item for item in raw_results if record_in_window(item.get("publication_date") or "", item.get("publication_year") or "", from_date, to_date)]
-            note = f"{len(results)} resultados recuperados; tema: {topic}"
-        except Exception as exc:
+        if blocked_note:
             results = []
-            note = f"error: {exc}"
+            note = blocked_note
+        else:
+            try:
+                data = fetch_json(url)
+                raw_results = data.get("results", []) if isinstance(data, dict) else []
+                results = [item for item in raw_results if record_in_window(item.get("publication_date") or "", item.get("publication_year") or "", from_date, to_date)]
+                note = f"{len(results)} resultados recuperados; tema: {topic}"
+            except urllib.error.HTTPError as exc:
+                results = []
+                if exc.code == 429 and not api_key:
+                    blocked_note = (
+                        "omitida: cuota diaria anónima de OpenAlex agotada; "
+                        "configure HERMES_OPENALEX_API_KEY y reanude"
+                    )
+                    note = blocked_note
+                else:
+                    note = f"error HTTP {exc.code}: {exc.reason}"
+            except Exception as exc:
+                results = []
+                note = f"error: {exc}"
         for item in results:
             item_id = item.get("id") or f"oa-{len(items)+1}"
             items[item_id] = item
@@ -2792,6 +3172,20 @@ def row_score(row: dict[str, str]) -> tuple[int, int, int, int]:
     )
 
 
+def author_metadata_score(value: str) -> tuple[int, int]:
+    """Prefer a complete author list over a non-empty but truncated value."""
+
+    text = " ".join(str(value or "").split())
+    if not text:
+        return (0, 0)
+    names = [
+        name.strip()
+        for name in re.split(r"\s*;\s*|\s+\band\b\s+|\s+\by\b\s+", text)
+        if name.strip()
+    ]
+    return (len(names), len(text))
+
+
 def merge_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     merged: OrderedDict[str, dict[str, str]] = OrderedDict()
     for row in rows:
@@ -2799,6 +3193,10 @@ def merge_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         if key not in merged:
             merged[key] = dict(row)
             continue
+        best_authors = max(
+            (merged[key].get("authors", ""), row.get("authors", "")),
+            key=author_metadata_score,
+        )
         if row_score(row) > row_score(merged[key]):
             keep = dict(merged[key])
             keep.update({k: v for k, v in row.items() if v})
@@ -2807,6 +3205,8 @@ def merge_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
             for field, value in row.items():
                 if value and not merged[key].get(field):
                     merged[key][field] = value
+        if best_authors:
+            merged[key]["authors"] = best_authors
     output = []
     for row in sorted(
         merged.values(),

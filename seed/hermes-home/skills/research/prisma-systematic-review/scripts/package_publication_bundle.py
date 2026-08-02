@@ -14,6 +14,7 @@ import shutil
 import unicodedata
 import zipfile
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from delivery_portal import build_delivery_assets, render_html
 from publication_audit import stage_data_annexes
@@ -30,6 +31,9 @@ ROOT_FILES = [
     ("paper/audit/publication-gate.json", "paper/audit/publication-gate.json"),
     ("paper/audit/model-provenance.csv", "paper/audit/model-provenance.csv"),
     ("paper/audit/model-capabilities.json", "paper/audit/model-capabilities.json"),
+    ("paper/audit/multimodal-pdf-verification.json", "paper/audit/multimodal-pdf-verification.json"),
+    ("paper/audit/bibliographic-identity-corrections.csv", "paper/audit/bibliographic-identity-corrections.csv"),
+    ("paper/audit/source-verified-corrections.csv", "paper/audit/source-verified-corrections.csv"),
     ("paper/audit/claim-evidence-ledger.csv", "paper/audit/claim-evidence-ledger.csv"),
     ("paper/audit/evidence-coverage.md", "paper/audit/evidence-coverage.md"),
     ("paper/audit/evidence-coverage.json", "paper/audit/evidence-coverage.json"),
@@ -71,6 +75,7 @@ ROOT_FILES = [
     ("screening/full-text-dual-review.csv", "screening/full-text-dual-review.csv"),
     ("screening/screening-reliability.json", "screening/screening-reliability.json"),
     ("notes/pipeline-state.json", "notes/pipeline-state.json"),
+    ("notes/artifact-lineage.json", "notes/artifact-lineage.json"),
     ("notes/job-ledger.json", "notes/job-ledger.json"),
     ("selection/n-range-audit.md", "selection/n-range-audit.md"),
     ("paper/review/peer-review-overview.md", "paper/review/peer-review-overview.md"),
@@ -103,6 +108,11 @@ PUBLIC_TEXT_SUFFIXES = {
     ".tex",
     ".txt",
 }
+PRIVATE_PIPELINE_STEPS = {"research_memory"}
+PRIVATE_ARTIFACT_MARKERS = (
+    "notes/prior-research-context",
+    ".hermes/research-memory",
+)
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -188,7 +198,8 @@ def normalize_doi(value: str) -> str:
     doi = str(value or "").strip()
     doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi, flags=re.IGNORECASE)
     doi = re.sub(r"^doi:\s*", "", doi, flags=re.IGNORECASE)
-    return doi.strip().lower()
+    doi = doi.strip().lower()
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", doi)
 
 
 def record_doi_map(review_dir: pathlib.Path) -> dict[str, str]:
@@ -218,6 +229,20 @@ def doi_file_token(doi: str) -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", normalize_doi(doi)).strip("-")
 
 
+@lru_cache(maxsize=32)
+def review_path_pattern(review_name: str) -> re.Pattern[str]:
+    """Match an absolute path ending at a known review directory.
+
+    Each path segment excludes ``/`` so the expression cannot repartition a
+    long string exponentially while looking for the review name.
+    """
+    escaped_name = re.escape(review_name)
+    return re.compile(
+        rf"(?<![A-Za-z0-9_:/])/(?:[^/,\n\r\"'<>]+/)*"
+        rf"{escaped_name}(?=/|\b)"
+    )
+
+
 def replace_private_runtime_values(
     value: str,
     *,
@@ -227,15 +252,13 @@ def replace_private_runtime_values(
     """Remove local paths and internal IDs from reader-facing text."""
     text = str(value or "")
     text = text.replace(str(review_dir), ".")
-    review_name = re.escape(review_dir.name)
     # Artifacts can retain paths from the machine that originally built the
     # review, not only from the current staging copy. Anchor on the stable
-    # review folder name and collapse every machine-specific prefix.
-    text = re.sub(
-        rf"(?:/(?!/)[^,\n\r\"'<>]+?)*?/{review_name}(?=/|\b)",
-        ".",
-        text,
-    )
+    # review folder name and collapse every machine-specific prefix. The
+    # substring guard avoids invoking the regex for ordinary, potentially
+    # multi-megabyte cells that cannot contain such a path.
+    if review_dir.name in text:
+        text = review_path_pattern(review_dir.name).sub(".", text)
     text = LOCAL_ABSOLUTE_PATH_RE.sub("<LOCAL_PATH>", text)
 
     def replace_id(match: re.Match[str]) -> str:
@@ -391,6 +414,51 @@ def public_json_bytes(
         review_dir=review_dir,
         id_to_doi=id_to_doi,
     )
+    if source.name == "pipeline-state.json" and isinstance(public_value, dict):
+        steps = public_value.get("steps")
+        if isinstance(steps, dict):
+            public_value["steps"] = {
+                key: item
+                for key, item in steps.items()
+                if key not in PRIVATE_PIPELINE_STEPS
+            }
+        events = public_value.get("events")
+        if isinstance(events, list):
+            public_value["events"] = [
+                item
+                for item in events
+                if not (
+                    isinstance(item, dict)
+                    and item.get("step") in PRIVATE_PIPELINE_STEPS
+                )
+            ]
+    if source.name == "artifact-lineage.json" and isinstance(public_value, dict):
+        public_value["nodes"] = [
+            item
+            for item in public_value.get("nodes", [])
+            if isinstance(item, dict)
+            and not any(
+                marker in str(item.get("path") or "")
+                for marker in PRIVATE_ARTIFACT_MARKERS
+            )
+        ]
+        public_value["edges"] = [
+            item
+            for item in public_value.get("edges", [])
+            if isinstance(item, dict)
+            and item.get("step") not in PRIVATE_PIPELINE_STEPS
+            and not any(
+                marker in str(item.get(key) or "")
+                for marker in PRIVATE_ARTIFACT_MARKERS
+                for key in ("source", "target")
+            )
+        ]
+        public_value["steps"] = [
+            item
+            for item in public_value.get("steps", [])
+            if isinstance(item, dict)
+            and item.get("step") not in PRIVATE_PIPELINE_STEPS
+        ]
     if (
         source.name == "gold-manifest.json"
         and isinstance(public_value, dict)
@@ -730,7 +798,12 @@ def selected_pdf_paths(review_dir: pathlib.Path) -> list[pathlib.Path]:
 def collect_tree_files(root: pathlib.Path) -> list[pathlib.Path]:
     if not root.exists():
         return []
-    return sorted(path for path in root.rglob("*") if path.is_file())
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and not any(part.startswith(".") or part == "__MACOSX" for part in path.relative_to(root).parts)
+    )
 
 
 def write_readme(
@@ -924,6 +997,16 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
     page_render_assets = collect_tree_files(review_dir / "figures" / "page-renders")
     table_assets = collect_tree_files(review_dir / "tables" / "extracted")
     manuscript_assets = collect_tree_files(review_dir / "paper" / "manuscript" / "figures")
+    current_figure_names = {
+        "png": {path.name for path in rendered_pngs},
+        "svg": {path.name for path in rendered_svgs},
+    }
+    manuscript_assets = [
+        path
+        for path in manuscript_assets
+        if path.suffix.lower() not in {".png", ".svg"}
+        or path.name in current_figure_names[path.suffix.lower().lstrip(".")]
+    ]
     analysis_assets = [
         path
         for path in collect_tree_files(review_dir / "analysis")
@@ -976,6 +1059,23 @@ def build_bundle(review_dir: pathlib.Path) -> pathlib.Path:
                 archive,
                 review_dir / rel_source,
                 f"{archive_root}/{rel_target}",
+                review_dir=review_dir,
+                id_to_doi=id_to_doi,
+            )
+
+        # Keep rejected inference attempts auditable without presenting them as
+        # accepted scientific evidence. The assessment files record why an
+        # attempted model or fallback was retained only as provenance.
+        model_audit_paths = [
+            review_dir / "paper" / "audit" / "extraction-provider-assessment.json",
+            review_dir / "paper" / "audit" / "provenance-corrections.csv",
+            *sorted((review_dir / "paper" / "audit").glob("model-provenance-discarded-*.csv")),
+        ]
+        for path in model_audit_paths:
+            add_public_file(
+                archive,
+                path,
+                f"{archive_root}/paper/audit/{path.name}",
                 review_dir=review_dir,
                 id_to_doi=id_to_doi,
             )
@@ -1214,8 +1314,10 @@ def build_latex_editable_bundle(review_dir: pathlib.Path) -> pathlib.Path:
     bib_path = write_generated_bibtex(review_dir)
     outlet_mode, outlet_value = classify_target_outlet(declared_target_outlet(review_dir))
     target_outlet = outlet_value if outlet_mode == "specific-target-outlet" else ""
-    figures_png_dir = manuscript_dir / "figures" / "png"
-    figures_svg_dir = manuscript_dir / "figures" / "svg"
+    # The canonical figure directory is the source of truth. Manuscript-local
+    # copies may contain stale assets from an earlier rendering pass.
+    figures_png_dir = review_dir / "figures" / "png"
+    figures_svg_dir = review_dir / "figures" / "svg"
 
     bundle_path = package_dir / "publication-latex-editable.zip"
     archive_root = f"{review_dir.name}-latex-editable"
@@ -1242,9 +1344,15 @@ def build_latex_editable_bundle(review_dir: pathlib.Path) -> pathlib.Path:
     target_png_dir = extracted_bundle_dir / "figures" / "png"
     target_svg_dir = extracted_bundle_dir / "figures" / "svg"
     if figures_png_dir.exists():
-        shutil.copytree(figures_png_dir, target_png_dir, dirs_exist_ok=True)
+        target_png_dir.mkdir(parents=True, exist_ok=True)
+        for figure_path in sorted(figures_png_dir.glob("*.png")):
+            if figure_path.is_file():
+                shutil.copy2(figure_path, target_png_dir / figure_path.name)
     if figures_svg_dir.exists():
-        shutil.copytree(figures_svg_dir, target_svg_dir, dirs_exist_ok=True)
+        target_svg_dir.mkdir(parents=True, exist_ok=True)
+        for figure_path in sorted(figures_svg_dir.glob("*.svg")):
+            if figure_path.is_file():
+                shutil.copy2(figure_path, target_svg_dir / figure_path.name)
 
     latexmkrc_path = extracted_bundle_dir / "latexmkrc"
     latexmkrc_path.write_text(

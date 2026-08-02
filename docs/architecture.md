@@ -123,3 +123,44 @@ Las comunidades solo se interpretan si tamaño, cobertura y estabilidad superan
 los umbrales declarados. En caso contrario el grafo sigue disponible, pero su
 estado es exploratorio. El paquete nunca combina esas métricas en un supuesto
 índice de autoridad.
+
+### 7. Inteligencia científica
+
+La extracción no desemboca directamente en prosa. Una capa intermedia crea una
+matriz de posiciones de evidencia y distingue convergencia, desacuerdo
+direccional, resultado nulo, patrón condicionado y pregunta abierta. La unidad
+de análisis sigue siendo el estudio y cada posición conserva DOI, contexto,
+método y localización material.
+
+`analysis/reading-priority.csv` organiza la atención humana por relevancia,
+transparencia metodológica, evidencia recuperable, reproducibilidad y capacidad
+de contraste. No cambia inclusión, exclusión ni selección focal, y asigna peso
+cero a citas, productividad de autor y centralidad.
+
+### 8. Publicación visual
+
+Las figuras se tratan como argumentos visuales, no como decoración. El ranking
+evalúa utilidad científica, densidad, no redundancia y trazabilidad. Propone
+hasta cuatro figuras para el cuerpo del manuscrito por defecto. En el
+subperfil de seguridad puede proponer cinco figuras sustantivas: panorama de
+amenazas, matriz amenaza-control, comparabilidad metodológica, madurez de
+evidencia y gramática analítica. La arquitectura operativa, el mapa general y
+las redes exploratorias permanecen como suplemento o reserva.
+
+`figures/gallery.html` reúne el portfolio completo sin dependencias externas.
+Cada entrada explica por qué entra o no en el cuerpo y permite descargar PNG de
+alta resolución y SVG editable. La exportación LaTeX sincroniza esa fuente
+canónica, elimina copias antiguas y mantiene las figuras dentro del área
+imprimible.
+
+### 9. Memoria, linaje y auditoría de código
+
+La memoria entre revisiones puede recuperar consultas, DOI, constructos y
+precedentes, pero no reutiliza una decisión científica anterior. Vive en el
+área privada del runtime y no entra en el ZIP público.
+
+`notes/artifact-lineage.json` enlaza entradas y salidas mediante rutas
+relativas, tamaño y SHA-256. Demuestra derivación material, no validez
+epistemológica. La auditoría artículo-código es opcional y de solo lectura:
+inventaría repositorios declarados y, si se autoriza, consulta metadatos
+públicos sin clonar, instalar, importar ni ejecutar código de terceros.

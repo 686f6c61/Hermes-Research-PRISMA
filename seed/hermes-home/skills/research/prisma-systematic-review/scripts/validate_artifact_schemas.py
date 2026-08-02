@@ -23,38 +23,80 @@ def csv_header(path: pathlib.Path) -> list[str]:
         return next(reader, [])
 
 
+def csv_integrity_issues(path: pathlib.Path, relative: str) -> list[str]:
+    """Detect material row corruption that a valid header would otherwise hide."""
+    if relative != "selection/ultraquality-shortlist.csv" or not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    malformed = [
+        row
+        for row in rows
+        if row.get("record_id")
+        and not any(
+            str(row.get(field) or "").strip()
+            for field in ("assigned_doi", "title_original", "selected_for_final_n", "ultraquality_score")
+        )
+    ]
+    if len(malformed) > max(5, len(rows) // 4):
+        return [f"malformed_rows:{len(malformed)}/{len(rows)}"]
+    return []
+
+
 def validate(review_dir: pathlib.Path) -> dict[str, object]:
     """Validate every declared artifact that exists and report missing required files."""
     config = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     checks: list[dict[str, object]] = []
     for relative, contract in config.get("csv", {}).items():
         path = review_dir / relative
+        artifact_required = bool(contract.get("required", True))
         header = csv_header(path)
         required = list(contract.get("required_columns") or [])
         missing = [field for field in required if field not in header]
+        integrity_issues = csv_integrity_issues(path, relative)
+        if not path.exists() and not artifact_required:
+            status = "skip"
+            missing = []
+            integrity_issues = []
+        else:
+            status = "pass" if path.exists() and not missing and not integrity_issues else "fail"
         checks.append(
             {
                 "path": relative,
                 "kind": "csv",
                 "version": contract.get("version", ""),
-                "status": "pass" if path.exists() and not missing else "fail",
-                "missing": missing if path.exists() else ["file"],
+                "status": status,
+                "missing": missing if path.exists() or status == "skip" else ["file"],
+                "integrity_issues": integrity_issues,
+                "required": artifact_required,
             }
         )
-    for relative, required in config.get("json", {}).items():
+    for relative, raw_contract in config.get("json", {}).items():
         path = review_dir / relative
+        if isinstance(raw_contract, dict):
+            required = list(raw_contract.get("required_keys") or [])
+            artifact_required = bool(raw_contract.get("required", True))
+        else:
+            required = list(raw_contract or [])
+            artifact_required = True
         try:
             payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         except (OSError, json.JSONDecodeError):
             payload = {}
         missing = required_keys(payload, required)
+        if not path.exists() and not artifact_required:
+            status = "skip"
+            missing = []
+        else:
+            status = "pass" if path.exists() and not missing else "fail"
         checks.append(
             {
                 "path": relative,
                 "kind": "json",
                 "version": str(payload.get("schema_version") or ""),
-                "status": "pass" if path.exists() and not missing else "fail",
-                "missing": missing if path.exists() else ["file"],
+                "status": status,
+                "missing": missing if path.exists() or status == "skip" else ["file"],
+                "required": artifact_required,
             }
         )
     failed = [check for check in checks if check["status"] == "fail"]
@@ -85,9 +127,12 @@ def write_outputs(review_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path,
     ]
     for check in result["checks"]:
         missing = ", ".join(check["missing"]) or "ninguno"
+        integrity = ", ".join(check.get("integrity_issues") or []) or "ninguno"
         lines.append(
             f"- `{str(check['status']).upper()}` `{check['path']}` "
-            f"({check['kind']} {check['version'] or 'sin versión'}): faltan {missing}."
+            f"({check['kind']} {check['version'] or 'sin versión'}"
+            f"{', opcional' if not check.get('required', True) else ''}): faltan {missing}; "
+            f"integridad {integrity}."
         )
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

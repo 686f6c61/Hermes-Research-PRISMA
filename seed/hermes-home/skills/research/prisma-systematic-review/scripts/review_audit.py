@@ -169,10 +169,12 @@ def parse_ultraquality_limit(path: pathlib.Path) -> int | None:
     raw = parse_intake_value(path, "Límite final N ultraquality")
     if not raw or raw.lower() in {"sin límite", "sin limite", "none", "no"}:
         return None
-    try:
-        value = int(raw)
-    except ValueError:
+    values = [int(value) for value in re.findall(r"\d+", raw)]
+    if not values:
         return None
+    # A range such as 25-50 uses its upper bound as the audit cap. The lower
+    # bound is a target, not a reason to fail a valid evidence-driven shortlist.
+    value = max(values[:2])
     return value if value > 0 else None
 
 
@@ -339,7 +341,10 @@ def check_prisma_counts(path: pathlib.Path) -> CheckResult:
     expected = {
         "screened_title_abstract": len(ta_rows),
         "excluded_title_abstract": sum(1 for row in ta_rows if canonicalize_screening_decision(row.get("decision"), "title_abstract") == "exclude"),
-        "full_text_sought": sum(1 for row in ta_rows if canonicalize_screening_decision(row.get("decision"), "title_abstract") in {"include", "maybe"}),
+        # The full-text CSV is the material record of reports actually sought.
+        # It can be an evidence-prioritised subset of all title-stage includes
+        # and maybes when the protocol defines a retrieval cap.
+        "full_text_sought": len(ft_rows),
         "full_text_retrieved": len(assessed_rows),
         "full_text_not_retrieved": len(not_retrieved_rows),
         "full_text_assessed": len(assessed_rows),

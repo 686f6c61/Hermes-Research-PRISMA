@@ -93,6 +93,34 @@ def test_only_signed_resolution_for_exact_case_can_continue(
     ) is None
 
 
+def test_resolution_status_loads_private_review_env(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in signing_env():
+        monkeypatch.delenv(key, raising=False)
+    review_dir = tmp_path / "review"
+    (review_dir / ".env").parent.mkdir(parents=True, exist_ok=True)
+    (review_dir / ".env").write_text(
+        "\n".join(f"{key}={value}" for key, value in signing_env().items())
+        + "\n",
+        encoding="utf-8",
+    )
+    case = make_case(review_dir)
+    write_pending_cases(review_dir, [case])
+
+    record_resolution(
+        review_dir,
+        doi="10.1000/example",
+        decision="include",
+        reason="The full text supports inclusion.",
+    )
+
+    status = resolution_status(review_dir)
+    assert status["resolved"] == 1
+    assert status["unresolved"] == 0
+
+
 def test_runtime_state_waits_without_reporting_pipeline_failure(
     tmp_path: pathlib.Path,
 ) -> None:

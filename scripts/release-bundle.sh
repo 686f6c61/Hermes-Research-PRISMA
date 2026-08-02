@@ -23,7 +23,7 @@ timestamp="$(date +%Y%m%d-%H%M%S)"
 version="$(package_version)"
 release_root="${ROOT_DIR}/dist"
 staging_dir="${release_root}/staging/hermes-research-pack"
-zip_path="${release_root}/hermes-research-pack-v${version}-${timestamp}.zip"
+zip_path="${release_root}/hermes-research-pack-v${version}.zip"
 sha_path="${zip_path}.sha256"
 keep_staging="${KEEP_STAGING:-0}"
 
@@ -32,26 +32,126 @@ rm -rf "${staging_dir}"
 mkdir -p "${staging_dir}"
 
 rsync -a \
-  --exclude '.env' \
+  --include '.env.example' \
+  --exclude '.env*' \
   --exclude '.git/' \
   --exclude '.github/' \
   --exclude 'dist/' \
   --exclude 'runtime/' \
   --exclude 'Hermes/' \
+  --exclude 'workspace/' \
+  --exclude '/systematic-review-*/' \
   --exclude 'landing/' \
   --exclude 'Dockerfile' \
   --exclude 'nginx.conf' \
+  --exclude 'secrets/' \
+  --exclude 'credentials/' \
+  --exclude '*.pem' \
+  --exclude '*.key' \
+  --exclude '*.p12' \
+  --exclude '*.pfx' \
+  --exclude 'id_rsa*' \
+  --exclude 'id_ed25519*' \
+  --exclude 'credentials*.json' \
+  --exclude 'service-account*.json' \
+  --exclude '*.db' \
+  --exclude '*.sqlite' \
+  --exclude '*.sqlite3' \
+  --exclude '*.zip' \
+  --exclude '*.zip.sha256' \
+  --exclude '*.tar' \
+  --exclude '*.tar.gz' \
+  --exclude '*.tgz' \
+  --exclude '.venv/' \
+  --exclude 'venv/' \
   --exclude '__pycache__/' \
   --exclude '.cache/' \
   --exclude '*.pyc' \
   --exclude '.pytest_cache/' \
+  --exclude '.ruff_cache/' \
+  --exclude '.mypy_cache/' \
+  --exclude '.hypothesis/' \
+  --exclude '.tox/' \
+  --exclude '.nox/' \
   --exclude '.coverage' \
+  --exclude '.coverage.*' \
   --exclude 'htmlcov/' \
+  --exclude 'coverage.xml' \
   --exclude 'output/' \
   --exclude '.playwright-cli/' \
   --exclude '.DS_Store' \
+  --exclude '._*' \
+  --exclude 'Thumbs.db' \
+  --exclude '.idea/' \
+  --exclude '.vscode/' \
+  --exclude 'node_modules/' \
+  --exclude 'npm-debug.log*' \
+  --exclude 'yarn-debug.log*' \
+  --exclude 'yarn-error.log*' \
   "${ROOT_DIR}/" "${staging_dir}/"
 pass "A sanitized staging copy was created"
+
+section "Reject private or machine-local staging artifacts"
+python3 - "${staging_dir}" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+forbidden_parts = {
+    ".git",
+    ".venv",
+    "venv",
+    "runtime",
+    "dist",
+    "landing",
+    "workspace",
+    "secrets",
+    "credentials",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".hypothesis",
+    ".tox",
+    ".nox",
+    ".idea",
+    ".vscode",
+    "node_modules",
+}
+forbidden_suffixes = {
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".zip",
+    ".tar",
+    ".tgz",
+}
+errors = []
+for path in root.rglob("*"):
+    relative = path.relative_to(root)
+    if any(part in forbidden_parts for part in relative.parts):
+        errors.append(relative.as_posix())
+        continue
+    if relative.parts and relative.parts[0].startswith("systematic-review-"):
+        errors.append(relative.as_posix())
+        continue
+    if path.is_file():
+        if path.name.startswith(".env") and path.name != ".env.example":
+            errors.append(relative.as_posix())
+            continue
+        if path.suffix.lower() in forbidden_suffixes or path.name.endswith(".tar.gz"):
+            errors.append(relative.as_posix())
+
+if errors:
+    raise SystemExit(
+        "Forbidden release artifacts:\n" + "\n".join(f"  - {item}" for item in errors[:50])
+    )
+PY
+pass "The staging tree contains no private runtime, credentials, virtualenvs, or nested archives"
 
 section "Write release notes"
 cat > "${staging_dir}/RELEASE-NOTES.md" <<EOF

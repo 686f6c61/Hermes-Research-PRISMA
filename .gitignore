@@ -10,13 +10,43 @@
 runtime/
 dist/
 Hermes/
+workspace/
+tmp/
+/systematic-review-*/
+*.zip
+*.zip.sha256
+*.tar
+*.tar.gz
+*.tgz
+
+# Secrets, credentials, certificates, and local databases
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials*.json
+service-account*.json
+*.db
+*.sqlite
+*.sqlite3
 
 # Python and test caches
 __pycache__/
 *.py[cod]
 .cache/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 output/
 .playwright-cli/
@@ -27,15 +57,36 @@ venv/
 
 # LaTeX and document build residue
 *.aux
+*.bbl
+*.bcf
+*.blg
 *.fdb_latexmk
 *.fls
 *.log
+*.lof
+*.lot
+*.nav
 *.out
+*.run.xml
+*.snm
 *.synctex.gz
 *.toc
+*.vrb
 *.xdv
 
 # Editor and operating-system files
 .DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
 *.swp
+*.bak
+*.tmp
 *~
+
+# JavaScript tooling used only for local previews
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -18,8 +18,9 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from functools import partial
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ENV_PATH = PACKAGE_ROOT / ".env"
@@ -83,6 +84,12 @@ def prisma_script(*parts: str) -> Path:
     return SEEDED_HERMES_HOME / "skills" / "research" / "prisma-systematic-review" / "scripts" / Path(*parts)
 
 
+def network_analysis_script(*parts: str) -> Path:
+    """Locate a structural-network script inside the bundled Hermes seed."""
+
+    return SEEDED_HERMES_HOME / "skills" / "research" / "research-network-analysis" / "scripts" / Path(*parts)
+
+
 def prisma_status_script() -> Path:
     """Locate the bundled PRISMA status helper."""
 
@@ -101,6 +108,77 @@ def run_command(command: list[str], *, env: dict[str, str], cwd: Path | None = N
 
     completed = subprocess.run(command, cwd=str(cwd) if cwd else None, env=env, check=False)
     return completed.returncode
+
+
+def record_pipeline_transition(
+    review_dir: Path,
+    step_id: str,
+    *,
+    status: str,
+    inputs: Iterable[str],
+    outputs: Iterable[str],
+    detail: str = "",
+) -> None:
+    """Record direct CLI work in the same lineage used by the autopilot."""
+    scripts_dir = str(prisma_script("pipeline_state.py").parent)
+    inserted = scripts_dir not in sys.path
+    if inserted:
+        sys.path.insert(0, scripts_dir)
+    try:
+        from pipeline_state import record_step
+
+        record_step(
+            review_dir,
+            step_id,
+            status=status,
+            inputs=inputs,
+            outputs=outputs,
+            detail=detail,
+        )
+    finally:
+        if inserted:
+            sys.path.remove(scripts_dir)
+
+
+def run_tracked_review_step(
+    review_dir: Path,
+    step_id: str,
+    *,
+    inputs: Iterable[str],
+    outputs: Iterable[str],
+    runner: Callable[[], int],
+) -> int:
+    """Run a direct review command without losing resumability or lineage."""
+    input_patterns = list(inputs)
+    output_paths = list(outputs)
+    record_pipeline_transition(
+        review_dir,
+        step_id,
+        status="running",
+        inputs=input_patterns,
+        outputs=output_paths,
+    )
+    try:
+        returncode = runner()
+    except Exception as exc:
+        record_pipeline_transition(
+            review_dir,
+            step_id,
+            status="failed",
+            inputs=input_patterns,
+            outputs=output_paths,
+            detail=str(exc),
+        )
+        raise
+    record_pipeline_transition(
+        review_dir,
+        step_id,
+        status="completed" if returncode == 0 else "failed",
+        inputs=input_patterns,
+        outputs=output_paths,
+        detail="" if returncode == 0 else f"Command exited with status {returncode}.",
+    )
+    return returncode
 
 
 def is_truthy(value: str | None) -> bool:
@@ -154,10 +232,61 @@ def container_review_dir(review_dir: Path, env: dict[str, str]) -> str:
     return str(Path("/workspace") / relative)
 
 
+def bundle_container_for_review(review_dir: Path, env: dict[str, str]) -> str | None:
+    """Use Docker only when the requested review is inside its workspace mount."""
+
+    container_name = bundle_container_name(env)
+    if not container_name:
+        return None
+    try:
+        review_dir.resolve().relative_to(workspace_root(env).resolve())
+    except ValueError:
+        return None
+    return container_name
+
+
+def review_workspace_root(review_dir: Path, env: dict[str, str]) -> Path:
+    """Use the configured workspace, or the review parent for external paths."""
+
+    configured_root = workspace_root(env).resolve()
+    try:
+        review_dir.resolve().relative_to(configured_root)
+    except ValueError:
+        return review_dir.resolve().parent
+    return configured_root
+
+
 def container_prisma_script(*parts: str) -> str:
     """Locate a PRISMA research script inside the seeded runtime mount."""
 
     return str(Path("/opt/data") / "skills" / "research" / "prisma-systematic-review" / "scripts" / Path(*parts))
+
+
+def container_network_analysis_script(*parts: str) -> str:
+    """Locate a structural-network script inside the seeded runtime mount."""
+
+    return str(Path("/opt/data") / "skills" / "research" / "research-network-analysis" / "scripts" / Path(*parts))
+
+
+def network_analysis_needs_refresh(review_dir: Path) -> bool:
+    """Rebuild the atlas when it is missing or older than its source evidence."""
+
+    atlas = review_dir / "analysis" / "atlas" / "network-atlas.html"
+    if not atlas.exists() or atlas.stat().st_size == 0:
+        return True
+    source_patterns = (
+        "records/master-records.csv",
+        "screening/*.csv",
+        "extraction/extraction-table.csv",
+        "searches/search-log.csv",
+    )
+    atlas_mtime = atlas.stat().st_mtime
+    return any(
+        path.stat().st_mtime > atlas_mtime
+        for pattern in source_patterns
+        for path in review_dir.glob(pattern)
+        if path.is_file()
+    )
 
 
 def latest_review_dir(root: Path) -> Path | None:
@@ -626,6 +755,21 @@ def command_init(args: argparse.Namespace, env: dict[str, str]) -> int:
 
     summary = json.loads((result.stdout or "").strip().splitlines()[-1])
     review_dir = Path(str(summary["review_dir"])).resolve()
+    memory_script = prisma_script("build_research_memory.py")
+    if memory_script.is_file():
+        subprocess.run(
+            [
+                "python3",
+                str(memory_script),
+                str(review_dir),
+                "--workspace-root",
+                str(workspace_root(env)),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            env=env,
+        )
     background_started = False
     pid_label = "public-autonomous"
     if is_truthy(str(summary.get("autonomous_mode", ""))):
@@ -686,7 +830,7 @@ def command_run(args: argparse.Namespace, env: dict[str, str]) -> int:
     """Run the PRISMA pipeline for a review in foreground or background."""
 
     review_dir = resolve_review_dir(args.review, env)
-    container_name = bundle_container_name(env)
+    container_name = bundle_container_for_review(review_dir, env)
     if container_name:
         command = build_pipeline_command(
             review_dir,
@@ -716,7 +860,7 @@ def command_resume(args: argparse.Namespace, env: dict[str, str]) -> int:
     """Resume the review pipeline, defaulting to background mode."""
 
     review_dir = resolve_review_dir(args.review, env)
-    container_name = bundle_container_name(env)
+    container_name = bundle_container_for_review(review_dir, env)
     if container_name:
         command = build_pipeline_command(
             review_dir,
@@ -743,10 +887,10 @@ def command_resume(args: argparse.Namespace, env: dict[str, str]) -> int:
 
 
 def command_package(args: argparse.Namespace, env: dict[str, str]) -> int:
-    """Refresh the final bundle for a prepared review."""
+    """Refresh the complete bundle, including the offline structural atlas."""
 
     review_dir = resolve_review_dir(args.review, env)
-    container_name = bundle_container_name(env)
+    container_name = bundle_container_for_review(review_dir, env)
     container_dir = container_review_dir(review_dir, env) if container_name else ""
     package_script = prisma_script("package_publication_bundle.py")
     ensure_exists(package_script, "publication bundle script")
@@ -767,6 +911,48 @@ def command_package(args: argparse.Namespace, env: dict[str, str]) -> int:
         if returncode != 0:
             return returncode
 
+    if network_analysis_needs_refresh(review_dir):
+        network_script = network_analysis_script("build_network_analysis.py")
+        ensure_exists(network_script, "network analysis script")
+        host_python = PACKAGE_ROOT / ".venv" / "bin" / "python"
+        network_command = (
+            [
+                "python3",
+                container_network_analysis_script("build_network_analysis.py"),
+                container_dir,
+                "--offline",
+            ]
+            if container_name
+            else [
+                str(host_python if host_python.exists() else Path(sys.executable)),
+                str(network_script),
+                str(review_dir),
+                "--offline",
+            ]
+        )
+        runner = (
+            partial(run_in_container, network_command, env=env, cwd=Path("/workspace"))
+            if container_name
+            else partial(run_command, network_command, env=env, cwd=review_dir.parent)
+        )
+        returncode = run_tracked_review_step(
+            review_dir,
+            "network_analysis",
+            inputs=[
+                "records/master-records.csv",
+                "screening/*.csv",
+                "extraction/extraction-table.csv",
+                "searches/search-log.csv",
+            ],
+            outputs=[
+                "analysis/manifest.json",
+                "analysis/atlas/network-atlas.html",
+            ],
+            runner=runner,
+        )
+        if returncode != 0:
+            return returncode
+
     package_command = (
         ["python3", container_prisma_script("package_publication_bundle.py"), container_dir]
         if container_name
@@ -778,6 +964,126 @@ def command_package(args: argparse.Namespace, env: dict[str, str]) -> int:
         package_command,
         env=env,
         cwd=review_dir.parent,
+    )
+
+
+def command_intelligence(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Rebuild evidence positions and the non-bibliometric reading order."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_for_review(review_dir, env)
+    command = (
+        [
+            "python3",
+            container_prisma_script("build_scientific_intelligence.py"),
+            container_review_dir(review_dir, env),
+        ]
+        if container_name
+        else ["python3", str(prisma_script("build_scientific_intelligence.py")), str(review_dir)]
+    )
+    if container_name:
+        runner = partial(run_in_container, command, env=env, cwd=Path("/workspace"))
+    else:
+        runner = partial(run_command, command, env=env, cwd=review_dir.parent)
+    return run_tracked_review_step(
+        review_dir,
+        "scientific_intelligence",
+        inputs=[
+            "protocol/method-contract.json",
+            "extraction/extraction-table.csv",
+            "selection/ultraquality-shortlist.csv",
+        ],
+        outputs=[
+            "analysis/scientific-intelligence.json",
+            "analysis/reading-priority.csv",
+            "analysis/evidence/claim-position-matrix.csv",
+            "analysis/evidence/evidence-position-summary.json",
+            "analysis/evidence/consensus-disagreements-open-questions.md",
+        ],
+        runner=runner,
+    )
+
+
+def command_code_audit(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Run the optional read-only paper-to-code audit."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_for_review(review_dir, env)
+    command = (
+        [
+            "python3",
+            container_prisma_script("paper_code_audit.py"),
+            container_review_dir(review_dir, env),
+        ]
+        if container_name
+        else ["python3", str(prisma_script("paper_code_audit.py")), str(review_dir)]
+    )
+    if args.inspect_remote:
+        command.append("--inspect-remote")
+    if args.max_papers:
+        command.extend(["--max-papers", str(args.max_papers)])
+    if container_name:
+        runner = partial(run_in_container, command, env=env, cwd=Path("/workspace"))
+    else:
+        runner = partial(run_command, command, env=env, cwd=review_dir.parent)
+    return run_tracked_review_step(
+        review_dir,
+        "paper_code_audit",
+        inputs=[
+            "extraction/extraction-table.csv",
+            "selection/ultraquality-shortlist.csv",
+        ],
+        outputs=[
+            "analysis/reproducibility/paper-code-consistency.csv",
+            "analysis/reproducibility/paper-code-audit.md",
+            "analysis/reproducibility/paper-code-audit.json",
+        ],
+        runner=runner,
+    )
+
+
+def command_memory(args: argparse.Namespace, env: dict[str, str]) -> int:
+    """Refresh private cross-review discovery context."""
+
+    review_dir = resolve_review_dir(args.review, env)
+    container_name = bundle_container_for_review(review_dir, env)
+    command = (
+        [
+            "python3",
+            container_prisma_script("build_research_memory.py"),
+            container_review_dir(review_dir, env),
+            "--workspace-root",
+            "/workspace",
+        ]
+        if container_name
+        else [
+            "python3",
+            str(prisma_script("build_research_memory.py")),
+            str(review_dir),
+            "--workspace-root",
+            str(review_workspace_root(review_dir, env)),
+        ]
+    )
+    if container_name:
+        runner = partial(run_in_container, command, env=env, cwd=Path("/workspace"))
+    else:
+        runner = partial(run_command, command, env=env, cwd=review_dir.parent)
+    return run_tracked_review_step(
+        review_dir,
+        "research_memory",
+        inputs=[
+            "protocol/*.json",
+            "protocol/*.md",
+            "searches/search-log.csv",
+            "records/master-records.csv",
+            "screening/*.csv",
+            "extraction/extraction-table.csv",
+        ],
+        outputs=[
+            "notes/prior-research-context.json",
+            "notes/prior-research-context.md",
+        ],
+        runner=runner,
     )
 
 
@@ -1094,6 +1400,33 @@ def build_parser() -> argparse.ArgumentParser:
     package.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
     package.add_argument("--autopilot", action="store_true", help="Run publication_autopilot.py before packaging")
     package.set_defaults(func=command_package)
+
+    intelligence = subparsers.add_parser(
+        "intelligence",
+        help="Build evidence positions and a reading order with zero bibliometric weight",
+    )
+    intelligence.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    intelligence.set_defaults(func=command_intelligence)
+
+    code_audit = subparsers.add_parser(
+        "code-audit",
+        help="Optionally compare papers with declared public code without executing it",
+    )
+    code_audit.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    code_audit.add_argument(
+        "--inspect-remote",
+        action="store_true",
+        help="Inspect read-only GitHub metadata and file names; code is never executed.",
+    )
+    code_audit.add_argument("--max-papers", type=int, default=0, help="Optional focal-paper cap; zero means all.")
+    code_audit.set_defaults(func=command_code_audit)
+
+    memory = subparsers.add_parser(
+        "memory",
+        help="Refresh the private cross-review discovery catalog",
+    )
+    memory.add_argument("review", nargs="?", help="Review path or name. Defaults to the latest review.")
+    memory.set_defaults(func=command_memory)
 
     adjudicate = subparsers.add_parser(
         "adjudicate",

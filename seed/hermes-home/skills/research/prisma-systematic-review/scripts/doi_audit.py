@@ -37,7 +37,7 @@ def normalize_doi(text: str | None) -> str:
     if not match:
         return ""
     doi = match.group(1).rstrip(DOI_TRAILING).lower()
-    return doi
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", doi)
 
 
 def sniff_text_for_doi(text: str | None) -> str:

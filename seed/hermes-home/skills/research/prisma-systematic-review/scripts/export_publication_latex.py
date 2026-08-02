@@ -32,6 +32,19 @@ GREEK_TEXT_REPLACEMENTS = {
     "δ": "delta",
     "π": "pi",
 }
+MATH_TEXT_REPLACEMENTS = {
+    "Δ": "Delta",
+    "∅": "conjunto vacio",
+    "▷": "->",
+    "≥": ">=",
+    "∈": "en",
+    "∼": "aprox.",
+    "≈": "aprox.",
+    "𝑝": "p",
+    "𝑑": "d",
+    "𝑞": "q",
+    "𝜏": "tau",
+}
 
 
 def is_pipe_table_line(line: str) -> bool:
@@ -70,6 +83,13 @@ def sync_manuscript_figure_assets(review_dir: pathlib.Path, manuscript_dir: path
             continue
         target_dir = target_figures / subdir
         target_dir.mkdir(parents=True, exist_ok=True)
+        source_names = {path.name for path in source_dir.glob(f"*.{subdir}") if path.is_file()}
+        for stale_path in target_dir.glob(f"*.{subdir}"):
+            if stale_path.name not in source_names:
+                stale_path.unlink()
+        for metadata_path in target_dir.glob(".*"):
+            if metadata_path.is_file():
+                metadata_path.unlink()
         for source_path in source_dir.glob(f"*.{subdir}"):
             shutil.copy2(source_path, target_dir / source_path.name)
 
@@ -93,6 +113,8 @@ def normalize_markdown_for_pandoc(markdown: str) -> str:
         .replace("∗", "*")
         .replace("©", "(c)")
     )
+    for char, replacement in MATH_TEXT_REPLACEMENTS.items():
+        markdown = markdown.replace(char, replacement)
     lines = markdown.splitlines()
     normalized: list[str] = []
     i = 0
@@ -158,7 +180,7 @@ def wrap_standalone_latex_images(tex: str) -> str:
             ) if bounded_match else line
             if prev_nonempty != r"\centering" and not next_nonempty.startswith(r"\caption{"):
                 alt_match = LATEX_IMAGE_ALT_RE.search(stripped)
-                wrapped.append(r"\begin{figure}[htbp]")
+                wrapped.append(r"\begin{figure}[H]")
                 wrapped.append(r"\centering")
                 wrapped.append(image_line)
                 if alt_match:
@@ -184,6 +206,9 @@ def clean_caption_labels(tex: str) -> str:
     cleaned = re.sub(r"\\caption\{Figura(?:\s+\d+[A-Z]?|\s+adicional|\s+complementaria)\.\s*", r"\\caption{", tex)
     cleaned = re.sub(r"\\caption\{(Tabla\s+\d+[A-Z]?\.\s*)", r"\\caption*{\1", cleaned)
     cleaned = re.sub(r"\\caption\{(Tabla\s+(?!\d)[^}]+)\}", r"\\caption*{\1}", cleaned)
+    # Scientific figures must stay adjacent to their interpretation. Floating
+    # several large charts can place explanatory paragraphs before the visual.
+    cleaned = re.sub(r"\\begin\{figure\}(?:\[[^\]]+\])?", r"\\begin{figure}[H]", cleaned)
     # Keep Pandoc's default LaTeX typography stable across reviews; journal-specific
     # fonts should be applied by templates, not silently by the exporter.
     if r"\renewcommand{\figurename}{Figura}" not in cleaned:
@@ -193,6 +218,7 @@ def clean_caption_labels(tex: str) -> str:
                 [
                     r"\usepackage{graphicx}",
                     r"\usepackage{caption}",
+                    r"\usepackage{float}",
                     r"\renewcommand{\figurename}{Figura}",
                     r"\renewcommand{\tablename}{Tabla}",
                     r"\setlength{\LTcapwidth}{\textwidth}",
@@ -210,6 +236,8 @@ def add_unicode_font_fallbacks(tex: str) -> str:
     """Render non-Latin snippets without changing the manuscript's main font."""
     tex = LATEX_FORMAT_CONTROL_RE.sub("", tex)
     tex = tex.replace("≤", r"$\leq$")
+    for char, replacement in MATH_TEXT_REPLACEMENTS.items():
+        tex = tex.replace(char, replacement)
     for char, replacement in GREEK_TEXT_REPLACEMENTS.items():
         tex = tex.replace(rf"\({char}\)", replacement)
         tex = tex.replace(char, replacement)
@@ -229,7 +257,11 @@ def add_unicode_font_fallbacks(tex: str) -> str:
                 r"    \IfFontExistsTF{STIX Two Text}{",
                 r"      \newfontfamily\hermesunicodefont{STIX Two Text}",
                 r"    }{",
-                r"      \IfFontExistsTF{Times New Roman}{\newfontfamily\hermesunicodefont{Times New Roman}}{}",
+                r"      \IfFontExistsTF{Times New Roman}{",
+                r"        \newfontfamily\hermesunicodefont{Times New Roman}",
+                r"      }{",
+                r"        \newfontfamily\hermesunicodefont{DejaVu Sans}",
+                r"      }",
                 r"    }",
                 r"  }",
                 r"\fi",
@@ -263,8 +295,6 @@ def tighten_wide_longtables(tex: str) -> str:
                     tightened.append(r"\begingroup")
                     tightened.append(r"\footnotesize")
                     tightened.append(r"\setlength{\tabcolsep}{4pt}")
-                    tightened.append(r"\setlength{\LTleft}{0pt}")
-                    tightened.append(r"\setlength{\LTright}{0pt}")
                     tightened.extend(block)
                     tightened.append(r"\endgroup")
                     i = j + 1
@@ -301,13 +331,21 @@ def rebalance_full_title_tables(tex: str) -> str:
                 block = lines[i : j + 1]
                 block_text = "\n".join(block)
                 spec_count = sum(1 for entry in block if r">{\raggedright\arraybackslash}p{" in entry)
+                weights: list[float] | None = None
+                total_tabcolsep = max(0, 2 * (spec_count - 1))
                 if "Título completo" in block_text and "Score" in block_text and spec_count in {7, 8}:
                     if spec_count == 7:
                         weights = [0.0450, 0.1450, 0.4050, 0.0750, 0.1200, 0.0700, 0.1400]
-                        total_tabcolsep = 12
                     else:
                         weights = [0.0450, 0.1250, 0.2700, 0.0650, 0.0700, 0.0750, 0.0600, 0.2900]
-                        total_tabcolsep = 14
+                elif (
+                    "Fronteras de dominancia condicionada entre familias de harnesses" in block_text
+                    and spec_count == 7
+                ):
+                    # Threat and control-family labels carry substantially more
+                    # information than the count and evidence-ratio columns.
+                    weights = [0.1800, 0.2300, 0.0500, 0.0800, 0.0800, 0.2000, 0.1800]
+                if weights:
                     replacement = weighted_spec(spec_count, weights, total_tabcolsep)
                     rebuilt: list[str] = []
                     inserted = False

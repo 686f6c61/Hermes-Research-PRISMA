@@ -4,8 +4,8 @@ title: "Hermes Research Pack"
 type: software
 authors:
   - family-names: "686f6c61"
-version: 0.5.1
-date-released: 2026-08-01
+version: 0.6.0
+date-released: 2026-08-02
 repository-code: "https://github.com/686f6c61/Hermes-Research-PRISMA"
 url: "https://hermes-prisma.686f6c61.dev"
 license: MIT

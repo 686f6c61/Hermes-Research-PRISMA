@@ -366,8 +366,8 @@ def _static_svg(
         if callout:
             node_markup.append(
                 f'<text x="{x:.1f}" y="{y + 5:.1f}" text-anchor="middle" '
-                'font-family="IBM Plex Sans, Arial, sans-serif" font-size="14" '
-                f'font-weight="900">{callout}</text>'
+                'font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" '
+                f'font-weight="700">{callout}</text>'
             )
     callout_markup = []
     for index, node in enumerate(callout_nodes):
@@ -378,14 +378,14 @@ def _static_svg(
         callout_markup.append(
             f'<circle cx="1210" cy="{row_y:.1f}" r="17" fill="{color}" stroke="#111" stroke-width="3"/>'
             f'<text x="1210" y="{row_y + 5:.1f}" text-anchor="middle" '
-            'font-family="IBM Plex Sans, Arial, sans-serif" font-size="14" '
-            f'font-weight="900">{index + 1}</text>'
+            'font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" '
+            f'font-weight="700">{index + 1}</text>'
             f'<text x="1242" y="{row_y - 3:.1f}" fill="#111" '
-            'font-family="IBM Plex Sans, Arial, sans-serif" font-size="17" font-weight="800">'
+            'font-family="Avenir Next, Segoe UI, sans-serif" font-size="17" font-weight="700">'
             f'{_svg_text_lines(label, width=29, x=1242, y=row_y - 3, line_height=19)}</text>'
             f'<text x="1242" y="{row_y + 35:.1f}" fill="#555" '
-            'font-family="IBM Plex Mono, monospace" font-size="13">'
-            f'GRADO {html.escape(degree_label)}</text>'
+            'font-family="Avenir Next, Segoe UI, sans-serif" font-size="13">'
+            f'Grado ponderado {html.escape(degree_label)}</text>'
         )
     status_labels = {
         "interpretable": "INTERPRETABLE",
@@ -396,21 +396,23 @@ def _static_svg(
     status = status_labels.get(summary.get("claim_status"), str(summary.get("claim_status", "")).upper())
     stability = float(summary.get("community_stability") or 0.0)
     review_title = _svg_text_lines(title, width=118, x=75, y=207, line_height=25)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-<rect width="1600" height="1000" fill="#f5efe5"/>
-<rect x="65" y="45" width="1470" height="115" fill="#111"/>
-<text x="95" y="118" fill="#fff" font-family="IBM Plex Sans, Arial, sans-serif" font-size="48" font-weight="800">{html.escape(labels[view])}</text>
-<text fill="#111" font-family="IBM Plex Sans, Arial, sans-serif" font-size="21">{review_title}</text>
-<rect x="65" y="255" width="1060" height="625" fill="#fffaf3" stroke="#111" stroke-width="4"/>
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="network-title network-description">
+<title id="network-title">{html.escape(labels[view])}</title>
+<desc id="network-description">{html.escape(title)}</desc>
+<rect width="1600" height="1000" fill="#ffffff"/>
+<rect x="65" y="42" width="90" height="7" fill="#30343b"/>
+<text x="65" y="112" fill="#111" font-family="Iowan Old Style, Palatino Linotype, Georgia, serif" font-size="48" font-weight="700">{html.escape(labels[view])}</text>
+<text fill="#4f555e" font-family="Avenir Next, Segoe UI, sans-serif" font-size="21">{review_title}</text>
+<rect x="65" y="255" width="1060" height="625" fill="#fbfbfa" stroke="#b9bec5" stroke-width="1.5"/>
 {"".join(edge_markup)}
 {"".join(node_markup)}
-<rect x="1150" y="255" width="385" height="625" fill="#fffaf3" stroke="#111" stroke-width="4"/>
-<rect x="1177" y="278" width="225" height="38" fill="#111"/>
-<text x="1191" y="303" fill="#fff" font-family="IBM Plex Mono, monospace" font-size="16" font-weight="800">NODOS PRINCIPALES</text>
+<rect x="1150" y="255" width="385" height="625" fill="#ffffff" stroke="#b9bec5" stroke-width="1.5"/>
+<text x="1177" y="303" fill="#111" font-family="Iowan Old Style, Palatino Linotype, Georgia, serif" font-size="24" font-weight="700">Nodos principales</text>
+<line x1="1177" y1="322" x2="1508" y2="322" stroke="#b9bec5" stroke-width="1"/>
 {"".join(callout_markup)}
-<rect x="65" y="905" width="1470" height="58" fill="#111"/>
-<text x="90" y="941" fill="#fff" font-family="IBM Plex Mono, monospace" font-size="16" font-weight="700">
-{data["visibleNodes"]} DE {data["totalNodes"]} NODOS · {len(data["edges"])} VÍNCULOS · {int(round(float(summary.get("coverage", 0)) * 100))}% COBERTURA · {int(round(stability * 100))}% ESTABILIDAD · {html.escape(status)}
+<line x1="65" y1="915" x2="1535" y2="915" stroke="#b9bec5" stroke-width="1"/>
+<text x="65" y="948" fill="#4f555e" font-family="Avenir Next, Segoe UI, sans-serif" font-size="16">
+{data["visibleNodes"]} de {data["totalNodes"]} nodos · {len(data["edges"])} vínculos · {int(round(float(summary.get("coverage", 0)) * 100))}% cobertura · {int(round(stability * 100))}% estabilidad · {html.escape(status.title())}
 </text>
 </svg>
 """
@@ -425,19 +427,19 @@ ATLAS_TEMPLATE = """<!doctype html>
         content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
   <title>Atlas estructural · __TITLE__</title>
   <style>
-    :root{--ink:#111;--paper:#f5efe5;--panel:#fffaf3;--blue:#8db8e8;--yellow:#f3d45b;--green:#9dceae;--red:#f3a6a0}
-    *{box-sizing:border-box}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.42 "IBM Plex Sans",Arial,sans-serif}
-    button,input,select{font:inherit}.shell{max-width:1680px;margin:auto;padding:24px}.mast{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end;border:4px solid var(--ink);background:var(--panel);padding:24px;box-shadow:8px 8px 0 var(--ink)}
-    .eyebrow{display:inline-block;background:var(--ink);color:#fff;padding:7px 11px;font:700 13px/1 monospace;text-transform:uppercase;letter-spacing:.06em}
-    h1{font-size:clamp(34px,5vw,76px);line-height:.92;margin:18px 0 8px;max-width:1100px}.stamp{font:700 13px/1.5 monospace;text-align:right}
-    .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:20px 0}.kpi{border:3px solid var(--ink);padding:14px;background:#fff}.kpi:nth-child(2n){background:var(--yellow)}.kpi strong{display:block;font-size:28px}.kpi span{font-size:12px;text-transform:uppercase;font-weight:800}
-    .controls{display:flex;gap:10px;flex-wrap:wrap;border:3px solid var(--ink);background:var(--ink);padding:10px}.controls button,.controls input,.controls select,.controls a{border:2px solid var(--ink);padding:10px 13px;background:#fff;color:#111}.controls button[aria-pressed="true"]{background:var(--yellow);font-weight:900}.controls input{min-width:230px}.controls a{display:inline-flex;align-items:center;font-weight:800;text-decoration:none}.export{background:var(--green)!important;font-weight:900}.export-group{display:flex;gap:10px;flex-wrap:wrap;margin-left:auto}
-    .grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;margin-top:18px}.canvas,.side,.table-wrap,.method{border:4px solid var(--ink);background:var(--panel)}.canvas{min-height:690px;position:relative;overflow:hidden}.canvas svg{width:100%;height:690px;display:block}
-    .legend{position:absolute;left:15px;bottom:15px;max-width:420px;border:2px solid var(--ink);background:rgba(255,250,243,.94);padding:9px;font-size:12px}.side{padding:18px}.side h2{font-size:28px;line-height:1;margin:0 0 14px}.status{display:inline-block;padding:5px 8px;border:2px solid var(--ink);background:var(--green);font:700 12px monospace}.metric{border-top:2px solid var(--ink);padding:9px 0;display:flex;justify-content:space-between;gap:12px}.metric b{text-align:right}
-    .table-wrap,.method{margin-top:18px;padding:18px;overflow:auto}.table-wrap{max-height:720px}.table-wrap table{border-collapse:collapse;width:100%;min-width:900px}.table-wrap th,.table-wrap td{border:2px solid var(--ink);padding:8px;text-align:left}.table-wrap th{position:sticky;top:0;background:var(--blue);z-index:1}.method{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.method article{border:3px solid var(--ink);padding:14px;background:#fff}.method h3{margin-top:0}
-    .edge{stroke:#111;stroke-opacity:.2}.node{stroke:#111;stroke-width:2.5;cursor:pointer}.node:focus{stroke-width:6;outline:none}.label{font-size:11px;font-weight:800;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
-    .empty{padding:80px 30px;text-align:center;font-size:24px;font-weight:800}@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}.canvas svg{height:620px}.method{grid-template-columns:1fr}.stamp{text-align:left}.export-group{width:100%;margin-left:0}}@media(max-width:620px){.shell{padding:10px}.mast{grid-template-columns:1fr;padding:16px}.kpis{grid-template-columns:repeat(2,1fr)}.controls button{flex:1 1 calc(33.333% - 10px)}.controls label,.controls input,.controls select{width:100%}.export-group{display:grid;grid-template-columns:1fr 1fr;width:100%}.export-group button,.export-group a{justify-content:center}.canvas{min-height:530px}.canvas svg{height:530px}}
-    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}@media print{.controls{display:none}.shell{max-width:none}.canvas{break-inside:avoid}.side{break-inside:avoid}}
+    :root{color-scheme:light;--ink:#20242a;--muted:#626a75;--rule:#c9ced5;--paper:#f4f5f6;--panel:#fff;--soft:#eef1f4;--accent:#334b68;--focus:#8db8e8}
+    *{box-sizing:border-box}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 "Avenir Next","Segoe UI",sans-serif}
+    button,input,select{font:inherit}.shell{max-width:1640px;margin:auto;padding:38px 28px 64px}.mast{display:grid;grid-template-columns:1fr auto;gap:32px;align-items:end;border-top:7px solid var(--ink);border-bottom:1px solid var(--rule);background:var(--panel);padding:30px 32px 26px}
+    .eyebrow{display:inline-block;color:var(--accent);font:700 12px/1.2 "Avenir Next","Segoe UI",sans-serif;text-transform:uppercase;letter-spacing:.14em}
+    h1,h2,h3{font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif}h1{font-size:clamp(36px,4.7vw,68px);line-height:1.02;margin:14px 0 10px;max-width:1100px}.mast p{max-width:920px;margin:0;color:var(--muted);font-size:18px}.stamp{color:var(--muted);font:600 12px/1.55 "Avenir Next","Segoe UI",sans-serif;text-align:right;letter-spacing:.04em}
+    .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;margin:22px 0;background:var(--rule);border:1px solid var(--rule)}.kpi{padding:17px 18px;background:var(--panel)}.kpi strong{display:block;font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;font-size:30px;line-height:1.1}.kpi span{display:block;margin-bottom:5px;color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:700;letter-spacing:.09em}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;border:1px solid var(--rule);background:var(--panel);padding:12px}.controls button,.controls input,.controls select,.controls a{border:1px solid var(--rule);border-radius:3px;padding:9px 12px;background:#fff;color:var(--ink)}.controls button:hover,.controls a:hover{border-color:var(--accent)}.controls button:focus-visible,.controls input:focus-visible,.controls select:focus-visible,.controls a:focus-visible{outline:3px solid color-mix(in srgb,var(--focus) 65%,transparent);outline-offset:2px}.controls button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}.controls input{min-width:230px}.controls a{display:inline-flex;align-items:center;font-weight:650;text-decoration:none}.export{background:var(--soft)!important;font-weight:700}.export-group{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+    .grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;margin-top:18px}.canvas,.side,.table-wrap,.method{border:1px solid var(--rule);background:var(--panel)}.canvas{min-height:690px;position:relative;overflow:hidden}.canvas svg{width:100%;height:690px;display:block}
+    .legend{position:absolute;left:18px;bottom:18px;max-width:460px;border:1px solid var(--rule);background:rgba(255,255,255,.94);padding:10px 12px;color:var(--muted);font-size:12px}.side{padding:24px}.side h2{font-size:29px;line-height:1.08;margin:12px 0 18px}.status{display:inline-block;padding:4px 8px;border:1px solid var(--rule);background:var(--soft);color:var(--accent);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.metric{border-top:1px solid var(--rule);padding:10px 0;display:flex;justify-content:space-between;gap:12px}.metric b{text-align:right}
+    .table-wrap,.method{margin-top:18px;padding:24px;overflow:auto}.table-wrap{max-height:720px}.table-wrap h2{margin-top:0}.table-wrap table{border-collapse:collapse;width:100%;min-width:900px}.table-wrap th,.table-wrap td{border-bottom:1px solid var(--rule);padding:10px;text-align:left}.table-wrap th{position:sticky;top:0;background:var(--soft);z-index:1;color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.05em}.method{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}.method article{padding:4px 6px;background:#fff}.method article+article{border-left:1px solid var(--rule);padding-left:28px}.method h3{margin:0 0 8px;font-size:22px}
+    .edge{stroke:#4f5964;stroke-opacity:.16}.node{stroke:#30343b;stroke-width:2;cursor:pointer}.node:focus{stroke-width:5;outline:none}.label{font-size:11px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+    .empty{padding:80px 30px;text-align:center;font:600 22px "Iowan Old Style","Palatino Linotype",Georgia,serif}@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}.canvas svg{height:620px}.method{grid-template-columns:1fr}.method article+article{border-left:0;border-top:1px solid var(--rule);padding:22px 6px 4px}.stamp{text-align:left}.export-group{width:100%;margin-left:0}}@media(max-width:620px){.shell{padding:18px 10px 40px}.mast{grid-template-columns:1fr;padding:22px 18px}.kpis{grid-template-columns:repeat(2,1fr)}.controls button{flex:1 1 calc(33.333% - 10px)}.controls label,.controls input,.controls select{width:100%}.export-group{display:grid;grid-template-columns:1fr 1fr;width:100%}.export-group button,.export-group a{justify-content:center}.canvas{min-height:530px}.canvas svg{height:530px}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}@media print{body{background:#fff}.controls{display:none}.shell{max-width:none;padding:0}.canvas{break-inside:avoid}.side{break-inside:avoid}}
   </style>
 </head>
 <body>
@@ -515,18 +517,18 @@ function exportSvgMarkup(){
   const source=document.querySelector("#canvas svg");
   if(!source)return "";
   const summary=DATA.layerSummaries[LAYERS[state.view]],data=filtered(),titleLines=wrapTitle(DATA.title);
-  const titleMarkup=titleLines.map((line,index)=>`<text x="62" y="${142+index*35}" font-family="Arial, sans-serif" font-size="29" font-weight="700">${xml(line)}</text>`).join("");
+  const titleMarkup=titleLines.map((line,index)=>`<text x="62" y="${142+index*35}" fill="#4f555e" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24">${xml(line)}</text>`).join("");
   const graphTop=titleLines.length>1?205:180;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
-  <rect width="1600" height="1000" fill="#f5efe5"/>
-  <style>.edge{stroke:#111;stroke-opacity:.2}.node{stroke:#111;stroke-width:2.5}.label{font:800 11px Arial,sans-serif;paint-order:stroke;stroke:#fffaf3;stroke-width:4px;stroke-linejoin:round}</style>
-  <rect x="36" y="30" width="1528" height="82" fill="#111"/>
-  <text x="62" y="82" fill="#fff" font-family="Arial, sans-serif" font-size="34" font-weight="800">${xml(LABELS[state.view])}</text>
+  <rect width="1600" height="1000" fill="#fff"/>
+  <style>.edge{stroke:#4f5964;stroke-opacity:.16}.node{stroke:#30343b;stroke-width:2}.label{font:700 11px Avenir Next,Segoe UI,sans-serif;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}</style>
+  <rect x="36" y="30" width="90" height="7" fill="#30343b"/>
+  <text x="62" y="92" fill="#111" font-family="Iowan Old Style, Palatino Linotype, Georgia, serif" font-size="38" font-weight="700">${xml(LABELS[state.view])}</text>
   ${titleMarkup}
-  <rect x="36" y="${graphTop}" width="1528" height="${900-graphTop}" fill="#fffaf3" stroke="#111" stroke-width="4"/>
+  <rect x="36" y="${graphTop}" width="1528" height="${900-graphTop}" fill="#fbfbfa" stroke="#b9bec5" stroke-width="1.5"/>
   <svg x="50" y="${graphTop+10}" width="1500" height="${870-graphTop}" viewBox="0 0 1100 690">${source.innerHTML}</svg>
-  <rect x="36" y="930" width="1528" height="44" fill="#111"/>
-  <text x="58" y="958" fill="#fff" font-family="monospace" font-size="16" font-weight="700">${data.nodes.length} NODOS · ${data.edges.length} VÍNCULOS · ${fmt(summary.coverage*100)}% COBERTURA · ${xml(status(summary.claim_status).toUpperCase())}</text>
+  <line x1="36" y1="930" x2="1564" y2="930" stroke="#b9bec5" stroke-width="1"/>
+  <text x="58" y="960" fill="#4f555e" font-family="Avenir Next, Segoe UI, sans-serif" font-size="16">${data.nodes.length} nodos · ${data.edges.length} vínculos · ${fmt(summary.coverage*100)}% cobertura · ${xml(status(summary.claim_status))}</text>
   </svg>`;
 }
 function downloadSvg(){

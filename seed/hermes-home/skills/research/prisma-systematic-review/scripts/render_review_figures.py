@@ -23,6 +23,7 @@ MANIFEST_FIELDS = [
     "status",
     "notes",
 ]
+DEFAULT_PNG_WIDTH = 2400
 
 
 def ensure_dir(path: pathlib.Path) -> None:
@@ -103,7 +104,7 @@ def main() -> int:
     for svg_path in svg_targets:
         figure_id = slug_from_name(svg_path.stem)
         png_path = png_dir / f"{figure_id}.png"
-        render_svg(svg_path, png_path, args.width)
+        render_svg(svg_path, png_path, args.width or DEFAULT_PNG_WIDTH)
         rel_svg = svg_path.relative_to(review_dir).as_posix()
         rel_png = png_path.relative_to(review_dir).as_posix()
         row = existing.get(figure_id, {field: "" for field in MANIFEST_FIELDS})

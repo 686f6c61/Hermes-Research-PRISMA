@@ -28,6 +28,55 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
+def load_env_file(path: pathlib.Path) -> dict[str, str]:
+    """Read a dotenv file without exporting or logging private values."""
+
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def private_runtime_env(
+    review_dir: pathlib.Path,
+    env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Resolve signing configuration without requiring a manual ``source .env``.
+
+    The review can run inside Hermes, from the distribution root, or as a
+    standalone command. Only bounded local locations are inspected, and no
+    value is copied into the review workspace or emitted to stdout.
+    """
+
+    candidates: list[pathlib.Path] = []
+    hermes_home = pathlib.Path(
+        os.environ.get("HERMES_HOME") or "/opt/data"
+    ).expanduser()
+    candidates.append(hermes_home / ".env")
+    parents = list(review_dir.resolve().parents[:4])
+    candidates.extend(parent / ".env" for parent in reversed(parents))
+    candidates.extend([review_dir.parent / ".env", review_dir / ".env"])
+
+    resolved: dict[str, str] = {}
+    seen: set[pathlib.Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        resolved.update(load_env_file(candidate))
+    resolved.update({key: value for key, value in os.environ.items() if value})
+    if env is not None:
+        resolved.update({key: value for key, value in env.items() if value})
+    return resolved
+
+
 def researcher_identity(env: dict[str, str] | None = None) -> dict[str, str]:
     """Return the configured accountable researcher identity."""
 
@@ -107,13 +156,14 @@ def create_adjudication(
     normalized_decision = decision.strip().lower()
     if normalized_decision not in DECISIONS:
         raise ValueError("Decision must be approved or rejected")
-    identity = researcher_identity(env)
+    runtime_env = private_runtime_env(review_dir, env)
+    identity = researcher_identity(runtime_env)
     if not identity["name"] or not identity["email"]:
         raise ValueError("Researcher name and email must be configured before adjudication")
     digest = contract_digest(review_dir)
     if not digest:
         raise ValueError("The review has no frozen contracts-manifest.json")
-    secret = adjudication_secret(env)
+    secret = adjudication_secret(runtime_env)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "signature_algorithm": SIGNATURE_ALGORITHM,
@@ -153,7 +203,7 @@ def verify_adjudication(
     digest = contract_digest(review_dir)
     if not digest or payload.get("contract_sha256") != digest:
         return False, "adjudication does not match the current protocol contract"
-    secret = adjudication_secret(env)
+    secret = adjudication_secret(private_runtime_env(review_dir, env))
     if len(secret) < 32:
         return False, "adjudication signing secret is unavailable"
     expected = sign_payload(payload, secret)

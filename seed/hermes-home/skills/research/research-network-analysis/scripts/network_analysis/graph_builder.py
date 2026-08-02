@@ -54,7 +54,18 @@ GENERIC_OPENALEX_CONCEPTS = {
     "psychology",
     "social science",
     "sociology",
+    "code",
+    "context",
+    "key",
+    "set",
+    "task",
 }
+
+
+def descriptor_label(value: str) -> str:
+    """Remove ontology disambiguators that do not belong in reader-facing topic maps."""
+    label = str(value or "").strip()
+    return re.sub(r"\s+\([^()]{2,40}\)\s*$", "", label).strip()
 
 
 def _add_node(graph: nx.Graph, node_id: str, **attrs: Any) -> None:
@@ -119,21 +130,21 @@ def resolved_authors(record: dict[str, Any], work: dict[str, Any] | None) -> lis
 
 def resolved_keywords(record: dict[str, Any], work: dict[str, Any] | None) -> list[str]:
     labels = [
-        value.strip()
+        descriptor_label(value)
         for value in re.split(r"\s*(?:;|\||,|•|\n)\s*", record.get("keywords_raw", ""))
-        if value.strip() and len(value.strip()) <= 100
+        if descriptor_label(value) and len(descriptor_label(value)) <= 100
     ][:80]
     if work:
         labels.extend(
-            keyword
+            descriptor_label(keyword)
             for keyword in work.get("keywords") or []
-            if normalized_key(keyword) not in GENERIC_OPENALEX_CONCEPTS
+            if normalized_key(descriptor_label(keyword)) not in GENERIC_OPENALEX_CONCEPTS
         )
         if not labels:
             labels.extend(
-                concept
+                descriptor_label(concept)
                 for concept in work.get("concepts") or []
-                if normalized_key(concept) not in GENERIC_OPENALEX_CONCEPTS
+                if normalized_key(descriptor_label(concept)) not in GENERIC_OPENALEX_CONCEPTS
             )
     output: list[str] = []
     seen: set[str] = set()

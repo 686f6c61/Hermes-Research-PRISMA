@@ -27,6 +27,11 @@ Más adelante, cuando la revisión avanza, deberían aparecer también:
 - `screening/pending-disagreements.json`
 - `screening/disagreement-resolutions.jsonl` (solo si el investigador resuelve una discrepancia)
 - `extraction/extraction-table.csv`
+- `analysis/scientific-intelligence.json`
+- `analysis/reading-priority.csv`
+- `analysis/evidence/claim-position-matrix.csv`
+- `analysis/evidence/evidence-position-summary.json`
+- `analysis/evidence/consensus-disagreements-open-questions.md`
 - `fulltext/docling/manifest.csv`
 - `fulltext/docling/status.json`
 - `fulltext/docling/<doi>.md`
@@ -49,12 +54,21 @@ Más adelante, cuando la revisión avanza, deberían aparecer también:
 - `paper/audit/evidence-coverage.json`
 - `paper/audit/gold/gold-manifest.json`
 - `paper/audit/gold/DATASET-CARD.md`
+- `notes/artifact-lineage.json`
+
+Si se solicita la auditoría opcional artículo-código, deben aparecer:
+
+- `analysis/reproducibility/paper-code-consistency.csv`
+- `analysis/reproducibility/paper-code-audit.json`
+- `analysis/reproducibility/paper-code-audit.md`
 
 El cierre solo se considera completo cuando `paper/audit/publication-gate.md`
 marca `Estado global: **PASS**`.
 
 La entrega pública debe abrir con `index.html`, declarar doce categorías y no
 contener `record_id`, nombres `RID-*` ni rutas absolutas de la máquina autora.
+Tampoco debe incluir `.hermes/research-memory.json` ni
+`notes/prior-research-context.*`, que son contexto privado entre revisiones.
 
 Los artefactos de Docling solo aparecen para documentos con DOI válido y PDF
 recuperado. Sus nombres deben derivarse del DOI, nunca de identificadores

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,39 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_direct_cli_transitions_materialize_pipeline_lineage(tmp_path) -> None:
+    namespace = runpy.run_path(
+        str(ROOT / "hermes-research"),
+        run_name="hermes_research_contract_test",
+    )
+    record_transition = namespace["record_pipeline_transition"]
+    review = tmp_path / "systematic-review-cli-lineage"
+    (review / "protocol").mkdir(parents=True)
+    (review / "analysis").mkdir()
+    (review / "protocol" / "intake.md").write_text(
+        "# Intake\n",
+        encoding="utf-8",
+    )
+    (review / "analysis" / "result.json").write_text(
+        '{"status":"ready"}\n',
+        encoding="utf-8",
+    )
+
+    record_transition(
+        review,
+        "scientific_intelligence",
+        status="completed",
+        inputs=["protocol/intake.md"],
+        outputs=["analysis/result.json"],
+    )
+
+    state = json.loads((review / "notes" / "pipeline-state.json").read_text())
+    lineage = json.loads((review / "notes" / "artifact-lineage.json").read_text())
+    assert state["steps"]["scientific_intelligence"]["verification_status"] == "verified"
+    assert lineage["steps"][0]["step"] == "scientific_intelligence"
+    assert lineage["nodes"][0]["sha256"]
 
 
 def test_publication_metadata_validator_passes() -> None:
@@ -38,7 +72,7 @@ def test_setup_guide_has_the_exact_public_name_and_acceptance_contract() -> None
     assert not (ROOT / ("Set" + "ip_Hermes.txt")).exists()
     guide = guide_path.read_text(encoding="utf-8")
     for expected in (
-        "HERMES RESEARCH PACK 0.5.1",
+        "HERMES RESEARCH PACK 0.6.0",
         "./hermes-research setup",
         "./hermes-research doctor",
         "./hermes-research capability-test",
@@ -68,6 +102,7 @@ def test_setup_and_example_cover_secure_telegram_and_scholarly_sources() -> None
         "TELEGRAM_PRISMA_CHAT_ID",
         "HERMES_CONTACT_EMAIL",
         "HERMES_UNPAYWALL_EMAIL",
+        "HERMES_OPENALEX_API_KEY",
         "HERMES_SEMANTIC_SCHOLAR_API_KEY",
         "HERMES_LENS_API_KEY",
         "HERMES_NCBI_EMAIL",
@@ -104,8 +139,96 @@ def test_telegram_bootstrap_rejects_a_missing_token_without_leaking_data() -> No
 
 def test_release_builder_excludes_local_state_and_secrets() -> None:
     release_script = (ROOT / "scripts" / "release-bundle.sh").read_text(encoding="utf-8")
-    for exclusion in (".env", ".git/", "dist/", "runtime/", "__pycache__/", ".cache/"):
+    for exclusion in (
+        ".env*",
+        ".git/",
+        "dist/",
+        "runtime/",
+        "workspace/",
+        "/systematic-review-*/",
+        "secrets/",
+        "credentials/",
+        "*.pem",
+        "*.key",
+        "*.db",
+        "*.sqlite",
+        "*.zip",
+        ".venv/",
+        "venv/",
+        "__pycache__/",
+        ".cache/",
+        ".ruff_cache/",
+        ".mypy_cache/",
+        ".idea/",
+        ".vscode/",
+        "node_modules/",
+    ):
         assert f"--exclude '{exclusion}'" in release_script
+    assert "--include '.env.example'" in release_script
+    assert "--exclude 'systematic-review-*/'" not in release_script
+    assert 'hermes-research-pack-v${version}.zip' in release_script
+    assert 'hermes-research-pack-v${version}-${timestamp}.zip' not in release_script
+    assert "Reject private or machine-local staging artifacts" in release_script
+    assert (ROOT / "templates" / "systematic-review-template" / "protocol" / "intake.md").is_file()
+
+
+def test_gitignore_blocks_private_runtime_and_machine_artifacts() -> None:
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    for pattern in (
+        ".env.*",
+        "runtime/",
+        "dist/",
+        "workspace/",
+        "/systematic-review-*/",
+        "secrets/",
+        "credentials/",
+        "*.pem",
+        "*.key",
+        "*.db",
+        "*.sqlite",
+        "*.zip",
+        ".venv/",
+        "venv/",
+        ".ruff_cache/",
+        ".mypy_cache/",
+        ".idea/",
+        ".vscode/",
+        "node_modules/",
+    ):
+        assert pattern in ignore
+
+    repository = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if repository.returncode != 0:
+        return
+
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    forbidden_fragments = (
+        "/secrets/",
+        "/credentials/",
+        "/runtime/",
+        "/workspace/",
+        "/node_modules/",
+        "/.idea/",
+        "/.vscode/",
+    )
+    forbidden_suffixes = (".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3")
+    for path in tracked:
+        normalized = f"/{path}"
+        assert not any(fragment in normalized for fragment in forbidden_fragments)
+        assert not path.endswith(forbidden_suffixes)
+        assert not (Path(path).name.startswith(".env") and Path(path).name != ".env.example")
 
 
 def test_release_verifier_drops_operator_credentials_before_execution() -> None:
@@ -243,6 +366,29 @@ def test_structural_analysis_is_wired_into_runtime_and_publication_package() -> 
     assert "analysis/metrics/network-summary.json" in runtime
     assert "analysis_assets" in package
     assert "analysis/atlas/network-atlas.html" in package
+
+
+def test_public_package_refreshes_a_missing_or_stale_atlas(tmp_path) -> None:
+    namespace = runpy.run_path(
+        str(ROOT / "hermes-research"),
+        run_name="hermes_research_network_refresh_test",
+    )
+    needs_refresh = namespace["network_analysis_needs_refresh"]
+    review = tmp_path / "systematic-review-network-refresh"
+    (review / "records").mkdir(parents=True)
+    (review / "analysis/atlas").mkdir(parents=True)
+    source = review / "records/master-records.csv"
+    source.write_text("doi,title\n10.1234/example,Example\n", encoding="utf-8")
+
+    assert needs_refresh(review) is True
+
+    atlas = review / "analysis/atlas/network-atlas.html"
+    atlas.write_text("<!doctype html>", encoding="utf-8")
+    os.utime(atlas, (source.stat().st_mtime + 5, source.stat().st_mtime + 5))
+    assert needs_refresh(review) is False
+
+    os.utime(source, (atlas.stat().st_mtime + 5, atlas.stat().st_mtime + 5))
+    assert needs_refresh(review) is True
 
 
 def test_research_dependency_is_consistent_across_local_ci_and_container() -> None:

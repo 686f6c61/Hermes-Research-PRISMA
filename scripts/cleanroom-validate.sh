@@ -45,12 +45,18 @@ rsync -a \
   --exclude 'dist/' \
   --exclude 'runtime/' \
   --exclude 'Hermes/' \
+  --exclude 'workspace/' \
+  --exclude '/systematic-review-*/' \
   --exclude 'landing/' \
   --exclude 'Dockerfile' \
   --exclude 'nginx.conf' \
+  --exclude '.venv/' \
+  --exclude 'venv/' \
   --exclude '__pycache__/' \
   --exclude '*.pyc' \
   --exclude '.pytest_cache/' \
+  --exclude '.ruff_cache/' \
+  --exclude '.mypy_cache/' \
   --exclude '.coverage' \
   --exclude 'htmlcov/' \
   --exclude 'output/' \

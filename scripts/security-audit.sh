@@ -27,13 +27,19 @@ trivy fs \
   --scanners secret \
   --exit-code 1 \
   --skip-dirs .git \
+  --skip-dirs .venv \
   --skip-dirs dist \
+  --skip-dirs Hermes \
+  --skip-dirs node_modules \
   --skip-dirs runtime \
+  --skip-dirs tmp \
   --skip-dirs output \
+  --skip-dirs venv \
+  --skip-dirs workspace \
   --skip-dirs .playwright-cli \
   --skip-files .env \
   "${ROOT_DIR}" >/dev/null
-pass "No committed secret pattern was detected"
+pass "No secret pattern was detected in the public source tree"
 
 section "Block fixable HIGH and CRITICAL vulnerabilities"
 trivy image \

@@ -13,6 +13,7 @@ from typing import Any
 
 from adjudication_security import (
     adjudication_secret,
+    private_runtime_env,
     researcher_identity,
     sign_payload,
 )
@@ -146,8 +147,9 @@ def resolution_for_case(
 ) -> dict[str, Any] | None:
     """Return the newest valid researcher decision for a case."""
 
+    runtime_env = private_runtime_env(review_dir, env)
     for resolution in reversed(read_resolutions(review_dir)):
-        if valid_resolution(case, resolution, env=env):
+        if valid_resolution(case, resolution, env=runtime_env):
             return resolution
     return None
 
@@ -268,7 +270,8 @@ def record_resolution(
     normalized_reason = " ".join(reason.split())[:2000]
     if not normalized_reason:
         raise ValueError("A scientific reason is required")
-    identity = researcher_identity(env)
+    runtime_env = private_runtime_env(review_dir, env)
+    identity = researcher_identity(runtime_env)
     if not identity["name"] or not identity["email"]:
         raise ValueError("Researcher name and email must be configured")
     payload: dict[str, Any] = {
@@ -280,7 +283,10 @@ def record_resolution(
         "researcher": identity,
         "timestamp": now_iso(),
     }
-    payload["signature"] = sign_payload(payload, adjudication_secret(env))
+    payload["signature"] = sign_payload(
+        payload,
+        adjudication_secret(runtime_env),
+    )
     path = review_dir / "screening" / "disagreement-resolutions.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""

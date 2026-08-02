@@ -1,4 +1,4 @@
-HERMES RESEARCH PACK 0.5.1
+HERMES RESEARCH PACK 0.6.0
 INSTRUCCIONES PARA GUIAR UNA INSTALACION COMPLETA
 
 PROPOSITO
@@ -11,7 +11,7 @@ que sabe qué credencial necesita.
 REGLAS OBLIGATORIAS
 
 1. Trabaja desde la carpeta que contiene VERSION, hermes-research y
-   docker-compose.research.yml. Comprueba que VERSION indica 0.5.1.
+   docker-compose.research.yml. Comprueba que VERSION indica 0.6.0.
 2. No pidas que se peguen API keys, tokens de Telegram, contraseñas o secretos
    en la conversación. Indica que deben introducirse localmente cuando
    ./hermes-research setup los solicite sin eco.
@@ -94,17 +94,22 @@ La persona debe elegir una ruta y preparar una URL base terminada en /v1:
   HERMES_MODEL_PRIMARY
   HERMES_MODEL_VISION
   HERMES_MODEL_REVIEW
+  HERMES_JSON_RESPONSE_FORMAT
+  HERMES_REASONING_EFFORT
 
 Explica las funciones antes de pedir la elección:
 
   Principal: planificación, cribado, extracción, síntesis y escritura.
   Visión: lectura de páginas renderizadas, tablas, figuras y diagramas.
-  Revisor: crítica editorial independiente; conviene que no sea el mismo
-  modelo que escribe.
+Revisor: crítica editorial independiente; conviene que no sea el mismo
+modelo que escribe.
 
 No asumas que un modelo es multimodal por su nombre. Después de setup, doctor
 verifica que los identificadores existen y multimodal-test comprueba que el
-modelo visual realmente interpreta una página.
+modelo visual realmente interpreta una página. Activa
+HERMES_JSON_RESPONSE_FORMAT=1 o HERMES_REASONING_EFFORT únicamente cuando
+capability-test demuestre que el proveedor elegido admite esos parámetros; si
+no, déjalos vacíos.
 
 ENTORNO DE REFERENCIA PARA PRUEBAS
 
@@ -121,7 +126,9 @@ FASE 4. CONFIGURAR FUENTES ACADEMICAS
 
 Explica qué funciona sin credenciales y qué se amplía con ellas:
 
-  Sin API key: OpenAlex, Crossref, OpenAIRE, Europe PMC y arXiv.
+  Sin API key: Crossref, OpenAIRE, Europe PMC y arXiv.
+  Recomendado: OpenAlex tiene una cuota anónima pequeña; pide su API key
+  gratuita para una revisión real.
   Con email: Unpaywall usa un correo de contacto, no una API key.
   Opcional: Semantic Scholar admite API key para límites más estables.
   Opcional: Lens Scholarly API necesita HERMES_LENS_API_KEY.
@@ -133,6 +140,7 @@ El asistente local puede guardar:
 
   HERMES_CONTACT_EMAIL
   HERMES_UNPAYWALL_EMAIL
+  HERMES_OPENALEX_API_KEY
   HERMES_SEMANTIC_SCHOLAR_API_KEY
   HERMES_LENS_API_KEY
   HERMES_NCBI_EMAIL
@@ -163,7 +171,8 @@ Antes de cerrar esta fase, presenta el mapa completo de terceros por función:
     tener una asignación mensual específica.
 
   Descubrimiento abierto con adaptador:
-    OpenAlex, Crossref, OpenAIRE, Europe PMC y arXiv.
+    Crossref, OpenAIRE, Europe PMC y arXiv; OpenAlex con cuota anónima pequeña
+    o con su API key gratuita recomendada.
 
   Cobertura opcional:
     Unpaywall con email; Semantic Scholar, Lens Scholarly y NCBI/PubMed con las
@@ -254,10 +263,15 @@ Ejecuta en este orden:
   ./hermes-research docling-test
   ./hermes-research smoke-test
 
-capability-test prueba texto y JSON estructurado. multimodal-test verifica la
-lectura visual. docling-test verifica extracción documental. smoke-test prueba
-adquisición bibliográfica real y artefactos sin lanzar una revisión costosa.
-Si falla una prueba, diagnostica, corrige y repite; no saltes al siguiente paso.
+capability-test prueba texto y JSON estructurado. multimodal-test busca
+automáticamente la revisión material más reciente y no se limita a una tarjeta
+sintética: cuando existe una revisión con PDF, renderiza su primera página, pide
+al modelo visual recuperar el título y contrasta la respuesta con la capa
+textual del documento. El resultado queda en
+paper/audit/multimodal-pdf-verification.json sin credenciales. docling-test
+verifica extracción documental. smoke-test prueba adquisición bibliográfica
+real y artefactos sin lanzar una revisión costosa. Si falla una prueba,
+diagnostica, corrige y repite; no saltes al siguiente paso.
 
 FASE 10. EXPLICAR DATOS, COSTE Y PRIVACIDAD
 
@@ -298,6 +312,30 @@ Después enseña:
   ./hermes-research logs --follow
   ./hermes-research resume
   ./hermes-research package
+  ./hermes-research intelligence
+  ./hermes-research memory
+
+Explica que intelligence reconstruye convergencias, desacuerdos, preguntas
+abiertas y prioridad de lectura sin modificar elegibilidad ni selección.
+memory mantiene un contexto privado entre revisiones, pero prohíbe reutilizar
+una decisión científica anterior como decisión actual.
+
+Explica también que package actualiza el atlas si el corpus cambió, genera
+figures/gallery.html con todas las figuras disponibles y propone como máximo
+cuatro visuales no redundantes para el cuerpo del manuscrito. Las demás quedan
+como suplemento o reserva descargable; no se eliminan ni se insertan por
+decoración.
+
+La auditoría artículo-código es opcional y puede consumir tiempo adicional:
+
+  ./hermes-research code-audit <review>
+  ./hermes-research code-audit <review> --inspect-remote --max-papers 20
+
+El primer comando genera un inventario de enlaces ya declarados en los artefactos. El
+segundo consulta metadatos públicos de GitHub en modo de solo lectura.
+GITHUB_TOKEN es opcional y solo aumenta el límite de peticiones. No clones,
+instales, importes ni ejecutes código de terceros durante esta auditoría, y no
+la presentes como una reproducción computacional completa.
 
 En Telegram, explica /start, /nueva_revision, /estado, /reanudar, /cancelar y
 /ayuda. Explica también /discrepancias y
@@ -321,7 +359,7 @@ CRITERIO DE ACEPTACION
 
 Declara la instalación hiperconfigurada únicamente si:
 
-  [ ] VERSION es 0.5.1.
+  [ ] VERSION es 0.6.0.
   [ ] .env existe, tiene permisos 0600 y no está en Git.
   [ ] Nombre y email del investigador responsable están configurados.
   [ ] Las firmas de adjudicación y el servicio Docling tienen secretos locales generados.
@@ -331,7 +369,8 @@ Declara la instalación hiperconfigurada únicamente si:
   [ ] La ruta de inferencia elegida (NaN, local u otro proveedor) está
       documentada sin guardar la API key.
   [ ] capability-test pasa.
-  [ ] multimodal-test pasa.
+  [ ] multimodal-test pasa y, para una revisión real, conserva el comprobante
+      de lectura de una página científica.
   [ ] Docling pasa o su ausencia se ha aceptado explícitamente.
   [ ] smoke-test pasa con fuentes bibliográficas reales.
   [ ] En Telegram, bot, allowlist y chat pasan doctor.
@@ -339,6 +378,15 @@ Declara la instalación hiperconfigurada únicamente si:
       ejecutadas sin evidencia.
   [ ] Una discrepancia A/B queda pausada, visible y resoluble por DOI sin perder
       ni repetir el trabajo ya completado.
+  [ ] La inteligencia separa posiciones de evidencia y deja claro que la
+      prioridad de lectura no cambia la elegibilidad.
+  [ ] El ranking visual propone como máximo cuatro figuras para el cuerpo y la
+      galería permite descargar PNG y SVG sin archivos obsoletos.
+  [ ] El paquete contiene un atlas actualizado, GraphML y exportación GEXF
+      desde la vista interactiva.
+  [ ] artifact-lineage.json usa rutas relativas y hashes, sin rutas privadas.
+  [ ] La memoria entre revisiones permanece privada y no hereda decisiones.
+  [ ] La auditoría artículo-código, si se activa, sigue siendo de solo lectura.
   [ ] La persona sabe dónde viven datos, logs, costes y copias de seguridad.
 
 CIERRE QUE DEBES ENTREGAR

@@ -60,6 +60,19 @@ def normalize_label(text: str) -> str:
     return re.sub(r"\s+", " ", normalized)
 
 
+def is_full_text_evidence_location(value: str) -> bool:
+    """Accept both material full-text markers and stronger page anchors."""
+
+    normalized = normalize_label(value)
+    return normalized in {"full text", "texto completo"} or bool(
+        re.search(
+            r"\b(?:p|pp|page|pagina)\.?\s*\d+",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def main_argument_text(manuscript: str) -> str:
     """Return the argumentative manuscript body, excluding appendices and references."""
     return re.split(
@@ -683,7 +696,7 @@ def build_gate(review_dir: pathlib.Path) -> tuple[str, list[Check], dict[str, in
     non_full_text_rows = sum(
         1
         for row in selected_extraction_rows
-        if row and normalize_label(row.get("evidence_location", "")) not in {"full text", "texto completo"}
+        if row and not is_full_text_evidence_location(row.get("evidence_location", ""))
     )
     if not selected_ids:
         checks.append(Check("sintesis_focal_robusta", "FAIL", "No hay estudios seleccionados para el N final."))

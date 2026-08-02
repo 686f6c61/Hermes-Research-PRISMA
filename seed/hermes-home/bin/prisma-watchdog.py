@@ -16,7 +16,6 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-
 HERMES_HOME = pathlib.Path(os.getenv("HERMES_HOME", "/opt/data")).resolve()
 WORKSPACE_ROOT = pathlib.Path(os.getenv("PRISMA_WORKSPACE_ROOT", "/workspace")).resolve()
 STATUS_SCRIPT = HERMES_HOME / "skills" / "research" / "prisma-status" / "scripts" / "review_status.py"

@@ -77,6 +77,11 @@ if [[ -n "${HERMES_UNPAYWALL_EMAIL:-}" ]]; then
 else
   warn "Unpaywall is disabled because HERMES_UNPAYWALL_EMAIL is empty"
 fi
+if [[ -n "${HERMES_OPENALEX_API_KEY:-}" ]]; then
+  pass "OpenAlex authenticated access is configured"
+else
+  warn "OpenAlex will use its small anonymous daily budget; configure HERMES_OPENALEX_API_KEY for full reviews"
+fi
 if [[ -n "${HERMES_SEMANTIC_SCHOLAR_API_KEY:-}" ]]; then
   pass "Semantic Scholar authenticated access is configured"
 elif [[ "${HERMES_ENABLE_SEMANTIC_SCHOLAR:-0}" == "1" ]]; then

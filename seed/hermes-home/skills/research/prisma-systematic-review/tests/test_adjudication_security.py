@@ -6,6 +6,8 @@ import json
 import pathlib
 import sys
 
+import pytest
+
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -68,3 +70,30 @@ def test_tampering_or_contract_change_invalidates_approval(tmp_path: pathlib.Pat
     valid, detail = verify_adjudication(review_dir, payload, env=signing_env())
     assert valid is False
     assert detail == "adjudication does not match the current protocol contract"
+
+
+def test_verification_loads_private_review_env_without_shell_source(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in signing_env():
+        monkeypatch.delenv(key, raising=False)
+    review_dir = tmp_path / "systematic-review-test"
+    materialize_contract(review_dir)
+    (review_dir / ".env").write_text(
+        "\n".join(f"{key}={value}" for key, value in signing_env().items())
+        + "\n",
+        encoding="utf-8",
+    )
+
+    path = create_adjudication(
+        review_dir,
+        decision="approved",
+        reason="Verified from bounded private configuration.",
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert verify_adjudication(review_dir, payload) == (
+        True,
+        "signed adjudication matches the current protocol",
+    )

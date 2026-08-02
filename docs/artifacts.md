@@ -55,6 +55,14 @@ Cuando la revisión entra en búsqueda, cribado y extracción, deberían aparece
 
 Después de extracción también se genera la capa estructural:
 
+- `analysis/scientific-intelligence.json`
+- `analysis/reading-priority.csv`
+- `analysis/evidence/claim-position-matrix.csv`
+- `analysis/evidence/evidence-position-summary.json`
+- `analysis/evidence/consensus-disagreements-open-questions.md`
+- `analysis/security/security-harness-comparison.csv` cuando el tema activa el subperfil de seguridad
+- `analysis/security/dominance-frontier.csv` cuando el tema activa el subperfil de seguridad
+- `analysis/security/security-harness-summary.json` cuando el tema activa el subperfil de seguridad
 - `analysis/atlas/network-atlas.html`
 - `analysis/data/nodes.csv`
 - `analysis/data/edges.csv`
@@ -67,14 +75,66 @@ Después de extracción también se genera la capa estructural:
 - `analysis/audit/coverage.json`
 - `analysis/audit/parameters.json`
 - `analysis/audit/provenance.csv`
+- `analysis/figures/png/topics-network.png`
+- `analysis/figures/svg/topics-network.svg`
+- `analysis/figures/png/authors-network.png`
+- `analysis/figures/svg/authors-network.svg`
 
 El atlas es autónomo y no descarga librerías al abrirse. Las tablas conservan
 denominadores y permiten recalcular o cuestionar la lectura visual.
+
+`claim-position-matrix.csv` clasifica la posición recuperable de cada estudio
+para cada comparación: asociación positiva, negativa, nula, mixta o
+condicionada, descriptiva o todavía incierta. El resumen separa convergencia,
+desacuerdo direccional, evidencia inconsistente, patrones condicionados y
+preguntas abiertas. No agrega por mayoría simple cuando diseño, población,
+medición o contexto no son comparables.
+
+La matriz conserva además `outcome_orientation` y `practical_valence` como
+campos distintos. Esto evita presentar una reducción favorable de error o
+latencia como si fuera un resultado práctico adverso solo porque su dirección
+numérica es negativa. También distingue convergencia directa, alineación entre
+contextos y alineación descriptiva.
+
+`reading-priority.csv` ordena la atención humana por relevancia, transparencia
+metodológica, evidencia localizable, reproducibilidad y capacidad de contrastar
+la síntesis. Es una cola de lectura, no un segundo algoritmo de inclusión.
+Centralidad, productividad y citas no aportan puntos ni cambian una decisión
+`OK/KO`.
+
+En revisiones de harnesses de seguridad,
+`security-harness-comparison.csv` conserva por DOI la amenaza, la arquitectura
+de control, el punto de enforcement, el atacante, el baseline, las métricas de
+seguridad y los costes operativos. `dominance-frontier.csv` no elige un ganador
+por mayoría ni agrega tasas incompatibles: solo identifica dónde existen las
+dimensiones necesarias para contrastar una dominancia condicionada y dónde la
+evidencia sigue siendo insuficiente.
+
+Los campos `security_effect_evidence` y
+`operational_tradeoff_evidence` distinguen `quantified`, `qualitative`,
+`mention_only` y `missing`. Un encabezado, un nombre de métrica o una referencia
+a una tabla no se promueve a resultado cuantificado. Del mismo modo,
+`with_adaptive_attacker` solo cuenta evaluaciones adaptativas reales y
+`with_open_artifact` exige una señal positiva de disponibilidad.
 
 Cada vista se puede descargar en PNG o SVG para comunicación y en GEXF para
 análisis en Gephi. La exportación conserva la capa, la fase y el filtro de
 búsqueda activos; `analysis/data/graph.graphml` mantiene la red completa como
 formato de intercambio independiente.
+
+`figures/gallery.html` reúne el portfolio visual completo con estilo de
+publicación universitaria. Separa figuras propuestas para el cuerpo,
+suplementos y reserva editorial; cada ficha explica su función y permite
+descargar PNG de alta resolución o SVG editable. La clasificación no obliga a
+insertar todas las figuras en el artículo: el gate mantiene un máximo de cuatro
+en el cuerpo y prioriza valor científico, densidad, no redundancia y
+trazabilidad.
+
+La figura de madurez de evidencia distingue alineación descriptiva, evidencia
+insuficiente y preguntas abiertas. Las redes temática y de coautoría se
+entregan también como activos estáticos; la primera puede entrar en el
+manuscrito si supera cobertura y estabilidad, mientras la coautoría queda como
+exploración suplementaria y nunca modifica la elegibilidad.
 
 `fulltext/docling/manifest.csv` registra el hash exacto del PDF, estado,
 duración, páginas, tablas, figuras, versión y error saneado. Los nombres de los
@@ -89,6 +149,24 @@ decisiones firmadas por DOI y de su razón científica.
 Estos tres archivos son privados: preservan trazabilidad y reanudación, pero no
 entran en el paquete público con identidades internas o datos de firma.
 
+La memoria entre revisiones sigue la misma frontera. El catálogo
+`.hermes/research-memory.json` vive en la raíz privada del workspace y cada
+revisión recibe `notes/prior-research-context.json` y `.md`. Conservan consultas,
+constructos, DOI y precedentes, pero marcan expresamente que una decisión previa
+no puede reutilizarse como decisión científica actual. Estos archivos tampoco
+entran en el ZIP público.
+
+La auditoría artículo-código es opcional y, cuando se solicita, añade:
+
+- `analysis/reproducibility/paper-code-consistency.csv`
+- `analysis/reproducibility/paper-code-audit.json`
+- `analysis/reproducibility/paper-code-audit.md`
+
+La auditoría solo inventariaría repositorios declarados y, con permiso explícito,
+consulta metadatos remotos de solo lectura. No descarga ni ejecuta código ajeno,
+por lo que sus resultados son señales de reproducibilidad documental, no una
+certificación de que el software reproduce los resultados del artículo.
+
 ## Artefactos de publicación
 
 Cuando la capa editorial termina bien, deberían existir:
@@ -98,6 +176,11 @@ Cuando la capa editorial termina bien, deberían existir:
 - `paper/manuscript/publication-ready.pdf`
 - `paper/audit/model-capabilities.json`
 - `paper/audit/model-provenance.csv`
+- `paper/audit/multimodal-pdf-verification.json`
+- `paper/audit/extraction-provider-assessment.json`, cuando una fase rechaza un
+  modelo o fallback después de evaluarlo
+- `paper/audit/model-provenance-discarded-*.csv`, cuando existen llamadas cuyo
+  resultado no alimenta la evidencia final
 - `paper/audit/claim-evidence-ledger.csv`
 - `paper/audit/evidence-coverage.json`
 - `paper/audit/publication-gate.json`
@@ -106,10 +189,24 @@ Cuando la capa editorial termina bien, deberían existir:
 - `paper/audit/gold/full-text-gold.csv`
 - `paper/audit/gold/extraction-gold.jsonl`
 - `paper/package/index.html`
+- `figures/gallery.html`
 - `paper/package/deliverables-manifest.json`
 - `paper/audit/publication-gate.md`
 - `paper/package/publication-package.zip`
 - `paper/package/publication-latex-editable.zip`
+- `notes/artifact-lineage.json`
+
+`model-provenance.csv` es un registro de llamadas, no una lista de resultados
+aceptados. Conserva también intentos fallidos o descartados para que el consumo
+y los fallos no desaparezcan de la auditoría. Los archivos de assessment y
+provenance descartada explican qué salida se rechazó, por qué se repitió y qué
+modelo produjo finalmente el artefacto utilizado.
+
+`multimodal-pdf-verification.json` demuestra una capacidad distinta de la
+conectividad o del reconocimiento de una tarjeta sintética. Renderiza la primera
+página de un PDF científico de la revisión, pide al modelo visual recuperar el
+título y compara la respuesta con la capa textual del mismo documento. Registra
+modelo solicitado, modelo efectivo y resultado, pero nunca la API key.
 
 El ZIP de publicación abre también con `index.html`. Sus anexos eliminan
 `record_id`, convierten `assigned_doi` en `doi`, sustituyen nombres de PDF
@@ -120,6 +217,14 @@ El directorio `paper/audit/gold/` contiene la referencia operacional generada
 durante el ciclo. El manifiesto declara si cada etiqueta procede de consenso,
 recomendación o decisión investigadora firmada y deja explícito que no es un
 ground truth humano externo.
+
+`notes/artifact-lineage.json` registra, con rutas relativas, tamaño y SHA-256,
+qué entradas materiales produjeron cada salida del ciclo. Sirve para verificar
+derivación y detectar cambios; no demuestra por sí solo que una interpretación
+sea científicamente válida. El linaje incrustado en el ZIP contiene las
+derivaciones verificadas anteriores al empaquetado. Los comandos directos
+`intelligence`, `memory` y `code-audit` actualizan también el estado material;
+el paso privado `memory` se elimina del estado y linaje publicables.
 
 ## Los doce bloques de entrega
 

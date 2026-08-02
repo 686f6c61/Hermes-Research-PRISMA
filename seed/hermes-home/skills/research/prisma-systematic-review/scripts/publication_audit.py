@@ -18,6 +18,7 @@ import tempfile
 import textwrap
 import unicodedata
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
@@ -28,6 +29,16 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from bibliographic_corrections import (  # noqa: E402
+    apply_source_verified_identity_corrections,
+)
+from build_security_harness_analysis import (  # noqa: E402
+    adaptive_attacker_reported,
+    open_artifact_reported,
+)
+from build_security_harness_analysis import (  # noqa: E402
+    reported as security_field_reported,
+)
 from docling_extract import extract_review_documents  # noqa: E402
 from docling_extract import normalize_doi as normalize_docling_doi  # noqa: E402
 from review_mode_router import (  # noqa: E402
@@ -110,7 +121,8 @@ PRISMA_S_APA = (
 SLR_GUIDELINES_APA = (
     "Kitchenham, B., & Charters, S. (2007). *Guidelines for performing systematic "
     "literature reviews in software engineering* (EBSE Technical Report EBSE-2007-01). "
-    "Keele University and Durham University."
+    "Keele University and Durham University. "
+    "https://madeyski.e-informatyka.pl/download/Kitchenham07.pdf"
 )
 
 LITERATURE_REVIEW_METHOD_APA = (
@@ -914,6 +926,11 @@ def reporting_gap_sentence(diagnostics: dict[str, int]) -> str:
 
 
 def conclusion_unit_thesis(profile: str, topic: str = "") -> str:
+    if profile == "ai_security_harness":
+        return (
+            "Esta revisión muestra que un harness de seguridad no debe compararse por nombre, número de filtros o una tasa de ataque aislada, "
+            "sino por la configuración entre amenaza, superficie protegida, punto de aplicación, adaptatividad del atacante, baseline, reducción del riesgo, pérdida de utilidad y coste operacional."
+        )
     if profile == "ai_architecture":
         return (
             "Esta revisión muestra que el campo no debe compararse solo por modelo base o benchmark, "
@@ -957,6 +974,11 @@ def conclusion_unit_thesis(profile: str, topic: str = "") -> str:
 
 
 def conclusion_grammar_sentence(profile: str, focus_count: int) -> str:
+    if profile == "ai_security_harness":
+        return (
+            f"De esta revisión emerge una gramática de comparación defensiva basada en amenaza, atacante, control, punto de aplicación, "
+            f"baseline, eficacia, falsos positivos, utilidad, latencia, coste, robustez y modo de fallo de los {focus_count} estudios focales."
+        )
     if profile == "ai_architecture":
         return (
             f"De esta revisión emerge una gramática arquitectónica de comparación basada en componentes, tarea, recuperación, memoria, herramientas, "
@@ -1005,7 +1027,11 @@ def original_contribution_table_lines(profile: str, topic: str, focus_count: int
     article thesis, the analytical grammar and the audit trail instead of
     leaving the section as a generic methodological claim.
     """
-    if profile in {"ai_architecture", "software_architecture", "agent_architecture"}:
+    if profile == "ai_security_harness":
+        caption = "Tabla 10. Gramática de aportación original del artículo."
+        unit = "Configuración amenaza-control-coste de fallo"
+        grammar = "Amenaza, superficie, punto de aplicación, adaptatividad, baseline, eficacia, utilidad, coste, robustez y fallo residual"
+    elif profile in {"ai_architecture", "software_architecture", "agent_architecture"}:
         caption = "Tabla 13. Gramática de aportación original del artículo."
         unit = "Arquitectura completa del sistema"
         grammar = "Tarea, componentes, memoria, herramientas, orquestación, inferencia, verificación y límite de validez"
@@ -1112,7 +1138,11 @@ def conclusion_diagnostic_future_lines(rows: list[dict[str, str]], profile: str)
             f"{count_studies(diagnostics['missing_benchmark'])} {verb_singular_plural(diagnostics['missing_benchmark'], 'no deja', 'no dejan')} un comparador claro"
         )
     if diagnostic_parts:
-        diagnostic_sentence = "Cuando " + ", ".join(diagnostic_parts) + ", el problema no es solo documental."
+        diagnostic_sentence = (
+            "En conjunto, estos vacíos señalan un problema de conmensurabilidad: el campo puede producir "
+            "resultados localmente útiles sin ofrecer todavía las piezas necesarias para acumularlos bajo "
+            "una explicación compartida."
+        )
     else:
         diagnostic_sentence = (
             "Aunque los campos mínimos de teoría, variables y comparación aparecen cubiertos, el problema científico no desaparece: "
@@ -1181,6 +1211,11 @@ def conclusion_diagnostic_future_lines(rows: list[dict[str, str]], profile: str)
             selected_future_lines += 1
     if selected_future_lines < 5:
         fallback_by_profile = {
+            "ai_security_harness": [
+                "Otra línea futura es evaluar defensas bajo atacantes adaptativos que conozcan el control y puedan optimizar contra él. Una defensa que funciona solo frente a un conjunto estático de prompts demuestra cobertura de benchmark, no robustez operacional.",
+                "También se necesitan comparaciones que reporten conjuntamente seguridad y utilidad. Reducir la tasa de ataque bloqueando solicitudes legítimas, degradando la tarea o introduciendo una latencia prohibitiva no demuestra superioridad del sistema; desplaza el riesgo hacia disponibilidad, experiencia de uso o coste.",
+                "Por último, los estudios deberían publicar amenaza, configuración del harness, punto de aplicación, baselines, semillas, prompts de ataque, código y resultados negativos cuando la licencia lo permita. Sin esos artefactos no puede distinguirse una defensa generalizable de un ajuste local al benchmark.",
+            ],
             "ai_architecture": [
                 "Otra línea futura es contrastar arquitecturas completas bajo tareas, métricas y condiciones de fallo equivalentes. El objetivo no debería ser demostrar que un modelo base gana en abstracto, sino aislar qué configuración de sistema mejora una tarea concreta y bajo qué coste de complejidad.",
                 "También conviene separar evaluación de capacidad, evaluación de sistema y evaluación de despliegue. Mezclar esos planos produce conclusiones atractivas pero poco acumulativas, porque una mejora de benchmark no equivale necesariamente a robustez operativa.",
@@ -1263,6 +1298,36 @@ def authorial_contribution_model(
                 ["Mecanismo central", "Ejecución-articulación-verificación-coordinación-aprendizaje-responsabilidad", "La IA mueve trabajo entre fases en lugar de hacerlo desaparecer."],
                 ["Aporte disciplinar", "Distinguir ahorro de tarea y desplazamiento de esfuerzo", "Permite leer productividad, carga y calidad sin confundirlas."],
                 ["Regla futura", "Medir trabajo invisible y coste de control", "Evita estudios que celebran velocidad mientras ocultan revisión, rework y responsabilidad."],
+            ],
+        }
+    if profile == "ai_security_harness":
+        return {
+            "name": "modelo de defensa como contrato operacional",
+            "thesis": (
+                "La aportación central del artículo es rechazar la idea de que un harness es mejor porque bloquea más ataques en un benchmark aislado. "
+                "Una defensa solo puede considerarse superior dentro de un contrato operacional explícito: amenaza y atacante definidos, superficie protegida, punto de aplicación, baseline comparable, reducción de riesgo, utilidad preservada, coste asumible y fallo residual conocido."
+            ),
+            "theory": (
+                "La tesis teórica es que la seguridad de modelos generativos y agentes no reside en una barrera única, sino en la distribución de control a lo largo del sistema. "
+                "Filtros de entrada, aislamiento de contexto, permisos de herramientas, monitores de ejecución, verificadores de salida y auditoría reducen incertidumbres distintas. "
+                "Sumar capas no garantiza seguridad: cada capa cambia la superficie de ataque, introduce falsos positivos y puede crear puntos ciegos nuevos."
+            ),
+            "model": (
+                "El modelo interpretativo propuesto es amenaza-superficie-control-evidencia-coste. La amenaza declara qué capacidad tiene el atacante; la superficie identifica dónde puede influir; el control especifica qué decisión se bloquea, limita o verifica; la evidencia mide el riesgo residual frente a baselines y ataques adaptativos; y el coste incorpora utilidad, latencia, cómputo y carga de operación. "
+                "La comparación pierde validez cuando omite cualquiera de esas piezas."
+            ),
+            "field": (
+                "El aporte al campo es una regla de decisión que sustituye rankings universales por fronteras de dominancia. Un harness domina a otro solo si reduce más riesgo bajo la misma amenaza y baseline sin empeorar de manera material utilidad, falsos positivos, coste o latencia; cuando existen compensaciones, la conclusión correcta es contextual y debe nombrar qué propiedad se prioriza."
+            ),
+            "method": (
+                "La consecuencia metodológica es exigir que futuras evaluaciones reporten threat model, atacante adaptativo o estático, punto de enforcement, corpus de ataques, baseline, ASR o métrica equivalente, falsos positivos, utilidad, latencia, coste, robustez fuera de distribución y modos de fallo. "
+                "Sin esa ficha mínima, el estudio puede demostrar una técnica, pero no sostener que ofrece el mejor harness."
+            ),
+            "rows": [
+                ["Unidad de teoría", "Contrato operacional de defensa", "Impide comparar controles bajo amenazas o costes incompatibles."],
+                ["Mecanismo central", "Amenaza-superficie-control-evidencia-coste", "Explica dónde se reduce riesgo y dónde se desplaza."],
+                ["Aporte disciplinar", "Frontera de dominancia defensiva", "Sustituye un ranking único por comparaciones multiobjetivo auditables."],
+                ["Regla futura", "Evaluar adaptación, utilidad y fallo residual", "Evita declarar victoria sobre benchmarks estáticos o defensas demasiado restrictivas."],
             ],
         }
     if profile == "ai_architecture":
@@ -1839,7 +1904,38 @@ def build_practical_implications_lines(
             or "En términos prácticos, la evidencia disponible permite defender beneficios parciales de productividad, pero no autoriza vender la IA como reducción neta y general del trabajo humano sin medir las capas invisibles de control.",
         ]
 
-    if profile in {"ai_architecture", "software_architecture", "agent_architecture"}:
+    if profile == "ai_security_harness":
+        counts = security_harness_signal_counts(focus_rows)
+        total = max(len(focus_rows), 1)
+        return [
+            "## Implicaciones prácticas",
+            opening
+            or (
+                "La implicación práctica central es que un equipo no debería comprar, desplegar o recomendar un harness de seguridad por una tasa de bloqueo aislada. Debe seleccionar una configuración defensiva para una amenaza, una superficie, un atacante y un coste operacional concretos."
+            ),
+            "",
+            "La primera consecuencia es escribir el threat model antes de elegir el control. Prompt injection directo, inyección indirecta desde RAG, jailbreak, abuso de herramientas y exfiltración no son variantes intercambiables del mismo problema. Un filtro de entrada puede ser pertinente para una superficie y completamente ciego para otra; por eso una política de seguridad debe declarar qué activo protege, qué puede hacer el atacante y dónde se aplica la defensa.",
+            "",
+            f"La segunda consecuencia es exigir un baseline material. En {counts['baseline']}/{total} estudios focales se recupera un comparador explícito. Sin ejecución sin defensa, control alternativo o configuración ablation, una tasa de ataque no permite saber cuánto valor añade el harness ni qué componente produce el efecto.",
+            "",
+            f"La tercera consecuencia es probar atacantes adaptativos. Solo {counts['adaptive']}/{total} estudios dejan una señal recuperable de adaptación del atacante. Una defensa evaluada únicamente contra un conjunto estático puede estar midiendo memorización del benchmark, no resistencia. Antes de desplegar, el equipo debería retestar después de revelar reglas, mensajes de rechazo, herramientas y superficie de contexto.",
+            "",
+            f"La cuarta consecuencia es medir seguridad y utilidad en el mismo experimento. {counts['asr']}/{total} estudios reportan ASR o una métrica equivalente, pero solo {counts['utility']}/{total} dejan impacto de utilidad y {counts['false_positive']}/{total} falsos positivos recuperables. Bloquear más no es dominar si el sistema también rechaza tareas legítimas, degrada precisión o desplaza la carga a revisión humana.",
+            "",
+            f"La quinta consecuencia es presupuestar el control como parte de la arquitectura. La latencia aparece en {counts['latency']}/{total} estudios y el coste en {counts['cost']}/{total}. En producción deben medirse por transacción, herramienta y nivel de riesgo; de lo contrario una defensa técnicamente eficaz puede ser operativamente inviable o inducir atajos que la neutralicen.",
+            "",
+            "La sexta consecuencia es diseñar por capas solo cuando cada capa tiene una función verificable. Entrada, contexto, runtime, permisos de herramientas y salida cubren superficies distintas. La defensa en profundidad aporta valor cuando reduce rutas de evasión y conserva observabilidad; añadir detectores redundantes sin ablation solo aumenta complejidad y falsos positivos.",
+            "",
+            f"La séptima consecuencia es convertir fallos y robustez en requisitos de compra. {counts['robustness']}/{total} estudios aportan alguna prueba de robustez y {counts['failure']}/{total} explicitan modos de fallo. Un proveedor o equipo interno debería entregar límites conocidos, ataques que siguen funcionando, política de actualización, logs auditables y procedimiento de rollback, no solo una media de benchmark.",
+            "",
+            f"La octava consecuencia es exigir reproducibilidad proporcional al riesgo. {counts['artifact']}/{total} estudios declaran código, datos o artefactos recuperables. Cuando el control decide si un agente puede leer datos, llamar herramientas o ejecutar acciones, el contrato de adopción debería incluir configuración, versiones, conjuntos de prueba, umbrales y evidencia de regresión.",
+            "",
+            evidence_implication
+            or (
+                "En términos de decisión, la evidencia debe utilizarse como frontera de dominancia condicionada: recomendar una defensa solo para las amenazas y costes que han sido comparados materialmente, mantener como señal emergente lo que carece de réplica y rechazar cualquier afirmación de superioridad universal que oculte utilidad, latencia, coste o adaptación del atacante."
+            ),
+        ]
+    elif profile in {"ai_architecture", "software_architecture", "agent_architecture"}:
         intro = opening or (
             "Para diseño de sistemas reales, la implicación práctica central es que la revisión debe traducirse en decisiones de arquitectura, no en una preferencia abstracta por modelos, agentes o proveedores."
         )
@@ -2156,11 +2252,11 @@ def build_validity_threats_lines(
         "",
         "## Limitaciones explícitas del estudio",
         "",
-        "La primera limitación es que esta revisión no declara doble cribado humano independiente ni coeficiente de acuerdo interjueces. Este punto afecta a tres decisiones sensibles de una revisión sistemática: la selección de registros, la extracción de información y la evaluación crítica de calidad o reporting. Por tanto, la transparencia documental no debe presentarse como equivalente perfecto a independencia humana; reduce opacidad, pero no elimina por completo el riesgo de sesgo de un único circuito de decisión.",
+        "La primera limitación es que el cribado se apoya en dos juicios automáticos independientes y no en dos revisores humanos ciegos. El acuerdo bruto y el kappa reportados miden consistencia entre esos juicios, no verdad científica. En título y resumen, una discrepancia se conservó como `necesita más prueba` para evitar una exclusión automática; en texto completo, todas las discrepancias recibieron decisión investigadora firmada tras lectura del PDF. La extracción y la evaluación crítica permanecen como codificación asistida y auditable, no como doble codificación humana.",
         "",
-        "La mitigación aplicada es distinta y debe leerse con precisión: protocolo previo, reglas de elegibilidad, DOI público, PDF local, extracción estructurada, anexos suplementarios, matriz de auditoría, score reproducible y conservación de estudios contextuales fuera del N focal. Estas medidas permiten que un lector externo recomponga cada decisión y detecte dónde podría discrepar, pero no sustituyen una revisión humana paralela cuando una revista la exija como condición editorial.",
+        "La mitigación aplicada combina protocolo previo, reglas de elegibilidad, juicios separados, resolución conservadora de incertidumbre, adjudicación humana de discrepancias en texto completo, DOI público, PDF local, extracción estructurada, anexos suplementarios, matriz de auditoría, score reproducible y conservación de estudios contextuales fuera del N focal. Estas medidas permiten que un lector externo recomponga cada decisión y detecte dónde podría discrepar, pero no convierten el proceso en un panel humano doble si una revista exige ese diseño específico.",
         "",
-        "La validación recomendada para una versión sometida a revista sería añadir un segundo revisor humano ciego sobre una submuestra aleatoria y suficientemente heterogénea de estudios, idealmente 10-20% del corpus focal o un mínimo de 10-15 registros cuando el N sea pequeño. Esa submuestra debería cubrir cribado, extracción de variables, codificación de mecanismos, evaluación crítica y decisión focal; las discrepancias tendrían que resolverse por consenso o por tercer evaluador y reportarse mediante acuerdo porcentual o kappa cuando la naturaleza de las categorías lo permita. Por tanto, esta revisión no presenta la trazabilidad documental como equivalente a fiabilidad interjueces humana: declara su alcance, documenta sus reglas y deja preparada la evidencia para una validación posterior.",
+        "Si la revista objetivo exige doble revisión humana, la validación adicional debería concentrarse en una submuestra aleatoria y heterogénea que cubra extracción de variables, codificación de mecanismos, evaluación crítica y decisión focal; el cribado ya conserva ambos juicios y las decisiones humanas de discrepancia para facilitar esa réplica. El manuscrito no presenta la trazabilidad documental como equivalente a fiabilidad interjueces humana: declara su alcance y deja preparada la evidencia para una verificación posterior.",
         "",
         "La segunda limitación es que la rúbrica de score y riesgo de reporting es interna. Se operacionaliza y se publica para que pueda ser auditada, pero no debe presentarse como una herramienta validada universal. Su función es ordenar un corpus heterogéneo y hacer visibles vacíos de reporte; no producir una escala psicométrica generalizable.",
         "",
@@ -2501,9 +2597,51 @@ def canonical_arxiv_url(value: str | None) -> str:
 
 
 def arxiv_preprint_label(arxiv_url: str) -> str:
-    match = re.search(r"arxiv\.org/abs/(\d{4}\.\d{4,5})", arxiv_url or "", flags=re.IGNORECASE)
-    arxiv_id = match.group(1) if match else ""
-    return f"arXiv preprint arXiv:{arxiv_id}" if arxiv_id else "arXiv preprint"
+    del arxiv_url
+    return "arXiv"
+
+
+def preprint_repository_label(
+    record: CorpusRecord,
+    csl_meta: dict | None,
+    citation_url: str,
+) -> str:
+    """Resolve the named repository for standalone preprints."""
+    assigned_doi = (record.assigned_doi or "").lower()
+    if canonical_arxiv_url(citation_url or assigned_doi or record.notes):
+        return "arXiv"
+    if assigned_doi.startswith("10.21203/"):
+        return "Research Square"
+    if assigned_doi.startswith("10.20944/"):
+        return "Preprints.org"
+    if not csl_meta:
+        return "Preprint" if assigned_doi.startswith("10.1101/") else ""
+
+    institution_names = " ".join(
+        str(item.get("name") or "")
+        for item in (csl_meta.get("institution") or [])
+        if isinstance(item, dict)
+    )
+    blob = normalized_text(
+        " ".join(
+            [
+                institution_names,
+                csl_value(csl_meta, "publisher"),
+                csl_value(csl_meta, "group-title"),
+                csl_value(csl_meta, "subtype"),
+            ]
+        )
+    ).lower()
+    if "biorxiv" in blob:
+        return "bioRxiv"
+    if "medrxiv" in blob:
+        return "medRxiv"
+    if csl_value(csl_meta, "type") in {"posted-content", "report"} and (
+        csl_value(csl_meta, "subtype").lower() == "preprint"
+        or (record.assigned_doi or "").startswith("10.1101/")
+    ):
+        return "Preprint"
+    return ""
 
 
 def citation_url_for_record(record: CorpusRecord, csl_meta: dict | None = None) -> str:
@@ -2837,12 +2975,33 @@ def detect_review_profile(context: dict[str, str]) -> str:
         "llm",
         "large language model",
         "modelo de lenguaje",
+        "generative ai",
+        "ia generativa",
+        "modelo generativo",
+        "modelos generativos",
         "agent",
         "agente",
         "rag",
         "foundation model",
         "modelos fundacionales",
     ]
+    security_harness_tokens = [
+        "security harness",
+        "harness de seguridad",
+        "guardrail",
+        "guardrails",
+        "llm firewall",
+        "ai firewall",
+        "prompt injection",
+        "jailbreak",
+        "policy enforcement",
+        "runtime control",
+        "tool misuse",
+        "data exfiltration",
+        "fuga de datos",
+    ]
+    if focus_any_token(blob, security_harness_tokens) and focus_any_token(blob, broad_ai_tokens):
+        return "ai_security_harness"
     if focus_any_token(blob, education_ai_tokens) and focus_any_token(blob, higher_education_tokens):
         return "ai_higher_education_teaching"
     if focus_any_token(blob, personality_tokens) and focus_any_token(blob, llm_tokens):
@@ -3070,6 +3229,173 @@ def read_flow_counts(review_dir: pathlib.Path) -> dict[str, int]:
     return counts
 
 
+def build_evidence_position_lines(review_dir: pathlib.Path) -> list[str]:
+    """Render convergence and disagreement as analysis rather than repetition."""
+    path = review_dir / "analysis" / "evidence" / "evidence-position-summary.json"
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    groups = payload.get("comparison_groups")
+    if not isinstance(groups, list) or not groups:
+        return []
+    labels = {
+        "convergence": "Convergencia",
+        "directional_disagreement": "Desacuerdo direccional",
+        "inconsistent_evidence": "Evidencia inconsistente",
+        "qualified_pattern": "Patrón condicionado",
+        "cross_context_alignment": "Alineación entre contextos",
+        "descriptive_alignment": "Alineación descriptiva",
+        "open_question": "Pregunta abierta",
+        "insufficient_evidence": "Evidencia insuficiente",
+    }
+    position_labels = {
+        "positive_association": "Asociación positiva",
+        "negative_association": "Asociación negativa",
+        "null_finding": "Resultado nulo",
+        "mixed_or_conditional": "Patrón mixto o condicionado",
+        "descriptive_or_theoretical": "Aportación descriptiva o teórica",
+        "direction_unclear": "Dirección no recuperable",
+    }
+    valence_labels = {
+        "favorable": "Favorable",
+        "favorable_but_qualified": "Favorable con cautelas",
+        "adverse": "Adversa",
+        "tradeoff_or_mixed": "Compensación o resultado mixto",
+        "tradeoff_or_contextual": "Dependiente del contexto",
+        "no_detectable_change": "Sin cambio detectable",
+        "not_applicable": "No aplicable",
+        "contextual": "Contextual",
+        "unclear": "No determinada",
+    }
+    comparable_groups = [
+        group
+        for group in groups
+        if isinstance(group, dict) and int(group.get("studies") or 0) >= 2
+    ]
+    rows: list[list[str]] = []
+    for group in comparable_groups[:8]:
+        if not isinstance(group, dict):
+            continue
+        status = str(group.get("status") or "")
+        positions = ", ".join(
+            position_labels.get(str(value), str(value).replace("_", " "))
+            for value in group.get("positions") or []
+        )
+        rows.append(
+            [
+                table_label(
+                    str(
+                        group.get("comparison_label")
+                        or group.get("comparison_key")
+                        or "Comparación no especificada"
+                    )
+                ),
+                str(group.get("studies") or 0),
+                labels.get(status, status.replace("_", " ").capitalize()),
+                table_label(positions or "Dirección no recuperable"),
+            ]
+        )
+    counts = payload.get("status_counts") if isinstance(payload.get("status_counts"), dict) else {}
+    convergence = int(counts.get("convergence") or 0)
+    cross_context = int(counts.get("cross_context_alignment") or 0)
+    descriptive = int(counts.get("descriptive_alignment") or 0)
+    disagreement = int(counts.get("directional_disagreement") or 0) + int(
+        counts.get("inconsistent_evidence") or 0
+    )
+    open_questions = int(counts.get("open_question") or 0) + int(counts.get("insufficient_evidence") or 0)
+    domain_rows: list[list[str]] = []
+    domains = payload.get("outcome_domains")
+    if isinstance(domains, list):
+        for domain in domains:
+            if not isinstance(domain, dict):
+                continue
+            if int(domain.get("studies") or 0) < 2:
+                continue
+            valence = ", ".join(
+                valence_labels.get(str(value), str(value).replace("_", " "))
+                for value in domain.get("practical_valence") or []
+            )
+            domain_rows.append(
+                [
+                    table_label(
+                        str(
+                            domain.get("outcome_label")
+                            or domain.get("outcome_family")
+                            or "Resultado no especificado"
+                        ).replace("_", " ")
+                    ),
+                    str(domain.get("studies") or 0),
+                    (
+                        "Señal transversal"
+                        if str(domain.get("claim_status") or "") == "cross_study_signal"
+                        else "Señal aislada"
+                    ),
+                    table_label(valence or "Lectura contextual"),
+                ]
+            )
+    return [
+        "## Convergencias, desacuerdos y preguntas abiertas",
+        "",
+        "La síntesis no convierte la repetición de términos en consenso. Cada hallazgo se relacionó con una "
+        "unidad de comparación y se clasificó de forma conservadora como asociación positiva, asociación "
+        "negativa, resultado nulo, patrón condicionado, aportación descriptiva o dirección no recuperable. "
+        "Esta operación permite separar coincidencia sustantiva de similitud verbal.",
+        "",
+        f"El mapa identifica {convergence} unidades con convergencia directa, {cross_context} con alineación "
+        f"entre contextos, {descriptive} con alineación descriptiva, {disagreement} con desacuerdo o "
+        f"inconsistencia y {open_questions} que permanecen abiertas o con evidencia insuficiente. Estos "
+        "conteos no se interpretan como efectos agregados: dos estudios solo ocupan el mismo plano cuando "
+        "comparten constructo o exposición, resultado, unidad de análisis y contexto suficientemente comparables.",
+        "",
+        (
+            "Por tanto, un valor cero en convergencia directa describe el resultado de un umbral exigente de "
+            "conmensurabilidad, no una propiedad esencial del fenómeno ni una afirmación de que ningún estudio "
+            "obtenga resultados compatibles. La compatibilidad bajo contratos parciales se conserva como "
+            "alineación entre contextos, alineación descriptiva o pregunta abierta."
+        ),
+        "",
+        (
+            "Un valor cero en desacuerdo no significa que el campo carezca de resultados opuestos. Significa "
+            "que no se identificaron desacuerdos entre estudios que conservaran una unidad de comparación "
+            "suficientemente equivalente. Los resultados incompatibles bajo otra amenaza, métrica, modelo, "
+            "contexto o baseline permanecen como heterogeneidad o pregunta abierta y no se fuerzan dentro "
+            "de una falsa contradicción directa."
+        ),
+        "",
+        "Tabla de posiciones de evidencia. Unidades compartidas por al menos dos estudios.",
+        markdown_table(
+            ["Unidad de comparación", "N", "Estado", "Direcciones observadas"],
+            rows or [["Sin unidad comparable", "0", "Pregunta abierta", "Dirección no recuperable"]],
+        ),
+        "",
+        "La dirección estadística y la utilidad práctica se conservaron por separado. Una reducción de "
+        "latencia, error, coste o riesgo puede ser una relación negativa y, al mismo tiempo, un resultado "
+        "favorable; del mismo modo, un aumento puede ser adverso cuando crece una carga o un riesgo. Esta "
+        "distinción evita traducir automáticamente «positivo» como beneficioso y «negativo» como perjudicial.",
+        "",
+        (
+            "`Dirección no recuperable` indica que el texto completo no permite reconstruir el signo o patrón "
+            "de la relación con suficiente trazabilidad. `No determinada`, en cambio, se refiere a la lectura "
+            "práctica: puede existir un resultado reportado, pero la evidencia no permite clasificarlo de "
+            "forma estable como favorable, adverso o dependiente del contexto."
+        ),
+        "",
+        "Tabla de dominios de resultado. Señales transversales sin agregación causal.",
+        markdown_table(
+            ["Dominio de resultado", "N", "Tipo de señal", "Lectura práctica"],
+            domain_rows or [["Resultado no especificado", "0", "Señal aislada", "Lectura contextual"]],
+        ),
+        "",
+        "La matriz completa conserva DOI, diseño, contexto, fragmento y localización. Por ello, una "
+        "discrepancia no se resuelve por mayoría documental: se examina si procede de una medición distinta, "
+        "un moderador, otra población, un diseño menos fuerte o una diferencia real entre resultados.",
+        "",
+    ]
+
+
 def enforce_publication_doi_flow(review_dir: pathlib.Path) -> None:
     """Persist the DOI-only publication rule before paper figures/anexes are built.
 
@@ -3148,6 +3474,64 @@ def read_search_sources(review_dir: pathlib.Path) -> Counter[str]:
     return counter
 
 
+def search_source_execution_rows(review_dir: pathlib.Path) -> list[list[str]]:
+    """Describe search-log activity without treating skipped calls as retrievals."""
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in read_csv_rows(review_dir / "searches" / "search-log.csv"):
+        source = first_nonempty(row.get("source"), row.get("platform"), "desconocido").strip()
+        grouped.setdefault(source or "desconocido", []).append(row)
+
+    rendered: list[list[str]] = []
+    for source, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0].lower())):
+        notes = " ".join(normalize_phrase(row.get("notes")).lower() for row in rows)
+        returned = sum(
+            parse_int(match, 0)
+            for match in re.findall(r"(\d+)\s+resultados?\s+(?:recuperados?|filtrados?)", notes)
+        )
+        has_error = "error:" in notes or "circuit open" in notes or "http 429" in notes
+        has_quota = "cuota" in notes and any(token in notes for token in ("agotada", "omitida", "exceeded"))
+        has_skipped = any(token in notes for token in ("optional source skipped", "skipped:", "omitida:"))
+        has_result_report = bool(re.search(r"\d+\s+resultados?\s+(?:recuperados?|filtrados?)", notes))
+
+        if returned and has_error:
+            state = "Parcial: resultados y errores registrados"
+        elif returned:
+            state = "Ejecutada con resultados"
+        elif has_quota:
+            state = "Omitida por cuota; reanudable con credencial"
+        elif has_error:
+            state = "Interrumpida por error o límite de API"
+        elif has_skipped:
+            state = "Fuente opcional no ejecutada"
+        elif has_result_report:
+            state = "Ejecutada sin resultados"
+        else:
+            state = "Estado conservado en el log"
+        rendered.append([source, str(len(rows)), str(returned) if has_result_report else "—", state])
+    return rendered
+
+
+def search_coverage_limit_sentence(source_rows: list[list[str]]) -> str:
+    """Translate non-executed sources into an explicit coverage limitation."""
+    unavailable = [
+        row[0]
+        for row in source_rows
+        if len(row) >= 4 and (row[2] == "—" or "error" in row[3].lower())
+    ]
+    if not unavailable:
+        return (
+            "Todas las fuentes registradas devolvieron un recuento operativo; aun así, la cobertura "
+            "sigue delimitada por sus índices, consultas y fechas de ejecución."
+        )
+    return (
+        f"No produjeron un recuento recuperable {join_human_list(unavailable)}. "
+        "Esta carencia puede favorecer literatura accesible mediante APIs abiertas, repositorios y "
+        "preprints frente a publicaciones indexadas solo en servicios institucionales. El sesgo no "
+        "se corrige fingiendo equivalencia entre fuentes: se declara, se conserva en el log y limita "
+        "la representatividad atribuible al corpus."
+    )
+
+
 def search_strategy_summary_lines(review_dir: pathlib.Path, context: dict[str, str], limit: int = 6) -> list[str]:
     """Summarize databases, dates and query logic in the method body."""
     rows = read_csv_rows(review_dir / "searches" / "search-log.csv")
@@ -3181,7 +3565,7 @@ def search_strategy_summary_lines(review_dir: pathlib.Path, context: dict[str, s
         query_text += f"; y {len(queries) - limit} cadenas adicionales en el anexo"
     topic = review_subject_label_es(context)
     return [
-        f"La estrategia de búsqueda combinó fuentes bibliográficas y APIs académicas registradas en el log: {source_text}. {date_text}{window_text}. La lógica de consulta se construyó alrededor del tema `{topic}` mediante bloques de concepto, sinónimos y combinaciones bilingües cuando el campo lo requería.",
+        f"La estrategia de búsqueda combinó fuentes bibliográficas y APIs académicas. El log contiene estos eventos por fuente: {source_text}. Un evento registra tanto ejecuciones efectivas como omisiones justificadas, cuotas o errores recuperables; por eso la Tabla 2 separa intentos, resultados brutos y estado operacional. {date_text}{window_text}. La lógica de consulta se construyó alrededor del tema `{topic}` mediante bloques de concepto, sinónimos y combinaciones bilingües cuando el campo lo requería.",
         f"Ejemplos de cadenas de búsqueda: {query_text}. El archivo `searches/search-log.csv` conserva para cada consulta la fuente, plataforma, cadena exacta, fecha de consulta, ventana temporal, notas y fichero exportado; `protocol/search-strategy.md` y `protocol/search-decomposition.md` documentan la descomposición de la pregunta en estadios de búsqueda.",
         "",
     ]
@@ -5036,6 +5420,8 @@ RESULT_FIGURE_ORDER = [
     "fig-theme-landscape",
     "fig-agent-task-matrix",
     "fig-method-profile",
+    "fig-evidence-maturity",
+    "fig-topic-network",
 ]
 
 
@@ -5098,7 +5484,9 @@ def next_discussion_figure_number(review_dir: pathlib.Path) -> int:
     approved = main_body_figure_ids(review_dir)
     if approved is None:
         return 6
-    count = 1 if "fig-review-architecture" in approved else 0
+    # The method section always embeds the review architecture, even when the
+    # portfolio gate also keeps a supplementary copy for the delivery package.
+    count = 1
     count += sum(1 for figure_id in RESULT_FIGURE_ORDER if figure_id in approved)
     return count + 1
 
@@ -5317,6 +5705,69 @@ def shortlist_sensitivity(review_dir: pathlib.Path) -> dict[str, int]:
     }
 
 
+def screening_reliability_method_lines(review_dir: pathlib.Path) -> list[str]:
+    """Describe dual screening from the persisted agreement artifacts."""
+    path = review_dir / "screening" / "screening-reliability.json"
+    if not path.exists():
+        return [
+            "No se dispone de una métrica de acuerdo independiente para el cribado; esta ausencia debe conservarse como limitación metodológica y no sustituirse por una afirmación genérica de fiabilidad."
+        ]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [
+            "El artefacto de fiabilidad del cribado no pudo interpretarse; por tanto, no se declara acuerdo ni kappa para esta ejecución."
+        ]
+
+    stages = payload.get("stages") if isinstance(payload, dict) else {}
+    stages = stages if isinstance(stages, dict) else {}
+
+    def stage_value(name: str, key: str, default: int | float = 0) -> int | float:
+        stage = stages.get(name) if isinstance(stages.get(name), dict) else {}
+        return stage.get(key, default)
+
+    def decimal(value: object) -> str:
+        try:
+            return f"{float(value):.3f}".replace(".", ",")
+        except (TypeError, ValueError):
+            return "no calculado"
+
+    title_records = parse_int(stage_value("title_abstract", "records"), 0)
+    title_agreements = parse_int(stage_value("title_abstract", "agreements"), 0)
+    title_disagreements = parse_int(stage_value("title_abstract", "disagreements"), 0)
+    full_records = parse_int(stage_value("full_text", "records"), 0)
+    full_agreements = parse_int(stage_value("full_text", "agreements"), 0)
+    full_disagreements = parse_int(stage_value("full_text", "disagreements"), 0)
+    full_researcher = parse_int(
+        stage_value("full_text", "researcher_resolved_disagreements"),
+        0,
+    )
+
+    lines = [
+        (
+            f"El cribado de título y resumen conservó dos juicios automáticos independientes para {title_records} registros. "
+            f"Coincidieron en {title_agreements} casos y discreparon en {title_disagreements}; el acuerdo bruto fue "
+            f"{decimal(stage_value('title_abstract', 'raw_agreement'))} y el kappa de Cohen "
+            f"{decimal(stage_value('title_abstract', 'cohen_kappa'))}. Las discrepancias no se resolvieron mediante exclusión automática: "
+            "se mantuvieron como `necesita más prueba`, de modo que la incertidumbre favoreció elegibilidad para la siguiente frontera documental."
+        )
+    ]
+    if full_records:
+        lines.append(
+            (
+                f"En texto completo se conservaron {full_records} pares de juicio: {full_agreements} acuerdos y {full_disagreements} discrepancias, "
+                f"con acuerdo bruto {decimal(stage_value('full_text', 'raw_agreement'))} y kappa de Cohen "
+                f"{decimal(stage_value('full_text', 'cohen_kappa'))}. {full_researcher} discrepancias quedaron resueltas mediante una decisión "
+                "investigadora firmada después de leer el PDF y conservar las razones de ambos revisores y del adjudicador. El resultado final no "
+                "descansa, por tanto, en que un modelo imponga silenciosamente su última respuesta."
+            )
+        )
+    lines.append(
+        "Estas métricas describen consistencia entre juicios automáticos independientes y no constituyen ground truth ni acuerdo interjueces humano. La extracción y la evaluación crítica tampoco se presentan como doble codificación humana; esa distinción se mantiene explícita para no confundir trazabilidad computacional con validación humana independiente."
+    )
+    return lines
+
+
 def risk_of_bias_rows(rows: list[dict[str, str]]) -> list[list[str]]:
     empirical = [row for row in rows if (row.get("work_type") or "").strip().lower() == "empirical"]
     grouped: dict[str, list[dict[str, str]]] = {}
@@ -5369,7 +5820,23 @@ def appraisal_signals_for_row(row: dict[str, str]) -> dict[str, str]:
     context_missing = is_missing_reporting_value(first_nonempty(row.get("countries"), row.get("country_or_countries")))
     theory_missing = is_missing_reporting_value(row.get("theory_framework"))
     comparator_missing = is_missing_reporting_value(row.get("baselines_or_comparators"))
-    validation_text = nice_value(first_nonempty(row.get("validation_signal"), row.get("limitations")))
+    is_security_row = any(
+        not is_missing_reporting_value(row.get(field))
+        for field in ("security_harness_name", "threat_model", "control_architecture")
+    )
+    validation_candidates = (
+        [row.get("robustness_evidence"), row.get("validation_signal")]
+        if is_security_row
+        else [row.get("validation_signal"), row.get("limitations")]
+    )
+    validation_text = next(
+        (
+            nice_value(value)
+            for value in validation_candidates
+            if not is_missing_reporting_value(value)
+        ),
+        "no reportado",
+    )
     validation_weak = is_empirical and (validation_text.lower() in {"no reportado", "not specified"} or "no report" in validation_text.lower())
     signal_specs = [
         ("tamaño/corpus", sample_applicable, not sample_missing, 20),
@@ -6212,6 +6679,40 @@ def domain_substantive_synthesis_lines(
             "La síntesis sustantiva, por tanto, no debe decir solamente que la evidencia es heterogénea. Debe decir que esa heterogeneidad tiene estructura: los estudios que celebran productividad suelen mirar una capa del trabajo; los que advierten riesgos, dependencia o revisión miran otras capas. La contribución del artículo está en poner esas capas en la misma contabilidad.",
             "",
         ]
+    if profile == "ai_security_harness":
+        counts = security_harness_signal_counts(focus_rows)
+        families = Counter(security_harness_evidence_family(row) for row in focus_rows)
+        return [
+            "## Síntesis sustantiva de resultados",
+            "",
+            f"La respuesta sustantiva no es que exista un harness universalmente mejor. Los {total} estudios focales permiten comparar defensas dentro de contratos concretos de amenaza, superficie, atacante y baseline. La síntesis se distribuye en {counter_summary(families, total, limit=6)}; esa distribución muestra que filtrar prompts, proteger RAG, restringir herramientas, aislar ejecución y verificar salidas resuelven problemas distintos {citation_block(top_ids[:4])}.",
+            "",
+            f"El primer patrón es la incompletitud del contrato comparativo. La amenaza es recuperable en {counts['threat']}/{total} estudios, el control en {counts['control']}/{total}, el punto de aplicación en {counts['enforcement']}/{total} y un baseline en {counts['baseline']}/{total}. Cuando una evaluación omite cualquiera de estas piezas, la tasa de éxito o bloqueo no permite saber si la defensa mejora una alternativa razonable bajo el mismo riesgo.",
+            "",
+            f"El segundo patrón separa eficacia local y robustez. {counts['asr']}/{total} estudios reportan ASR o una métrica defensiva equivalente, pero solo {counts['adaptive']}/{total} incluyen señal de atacante adaptativo y {counts['robustness']}/{total} aportan transferencia, ataques no vistos, ablación o validación externa. La evidencia favorece cautela: vencer un conjunto fijo de prompts demuestra cobertura del conjunto, no resistencia frente a un adversario que conoce y optimiza contra el control.",
+            "",
+            f"El tercer patrón es el coste oculto de la seguridad. Falsos positivos aparecen en {counts['false_positive']}/{total} estudios, utilidad en {counts['utility']}/{total}, latencia en {counts['latency']}/{total} y coste en {counts['cost']}/{total}. Esta asimetría impide aceptar un ranking basado solo en bloqueo: una defensa demasiado restrictiva puede reducir ataques y, al mismo tiempo, impedir uso legítimo, aumentar revisión humana o hacer inviable el sistema.",
+            "",
+            "El cuarto patrón es de cobertura de superficie. Permisos y sandbox actúan sobre herramientas; separación de instrucciones y datos sobre contexto; monitores de runtime sobre trayectorias; y verificadores de salida sobre respuestas. La evidencia no demuestra que más capas sean siempre mejores ni que una barrera única sea necesariamente inferior. Sí demuestra que estos controles no son intercambiables: una comparación válida debe indicar qué ruta de ataque interrumpe cada mecanismo y qué daño residual queda fuera de su alcance.",
+            "",
+            f"El quinto patrón es la transparencia del fallo. {counts['failure']}/{total} estudios declaran modos de fallo y {counts['artifact']}/{total} código o artefactos. Estos datos son científicamente centrales: permiten definir la frontera de uso seguro, reproducir bypasses y decidir qué capa compensatoria hace falta. Una defensa que solo publica éxitos aporta menos a la seguridad acumulativa que otra que muestra dónde deja de funcionar.",
+            "",
+            "Tabla 8C. Contrato comparativo para decidir si un harness aporta una mejora defensiva.",
+            markdown_table(
+                ["Dimensión", "Cobertura focal", "Regla de interpretación"],
+                [
+                    ["Amenaza y superficie", f"{counts['threat']}/{total}", "La eficacia solo viaja a amenazas y superficies equivalentes."],
+                    ["Control y enforcement", f"Control: {counts['control']}/{total}; enforcement: {counts['enforcement']}/{total}", "Debe saberse qué decisión controla y antes de qué daño."],
+                    ["Baseline y eficacia", f"Baseline: {counts['baseline']}/{total}; eficacia: {counts['asr']}/{total}", "Sin comparación común no existe mejora atribuible."],
+                    ["Adaptación y robustez", f"Atacante adaptativo: {counts['adaptive']}/{total}; robustez amplia: {counts['robustness']}/{total}", "Separa prueba adversarial adaptativa de transferencia, ablación o ataques no vistos."],
+                    ["Utilidad y coste", f"Utilidad: {counts['utility']}/{total}; latencia: {counts['latency']}/{total}; coste: {counts['cost']}/{total}", "Evita llamar mejor a una defensa inutilizable o demasiado cara."],
+                    ["Fallo y reproducibilidad", f"Fallo: {counts['failure']}/{total}; artefacto: {counts['artifact']}/{total}", "Delimita riesgo residual y permite repetir la evaluación."],
+                ],
+            ),
+            "",
+            "La síntesis permite una decisión fuerte pero condicionada: no hay un campeón universal; hay configuraciones que dominan dentro de una amenaza y un coste de fallo definidos. Cuando dos harnesses intercambian seguridad por utilidad o coste, la literatura debe reportar una frontera de compromiso y no ocultarla detrás de una media única.",
+            "",
+        ]
     if profile == "social_sciences":
         counts = social_science_signal_counts(focus_rows)
         exposure = counts["exposure"]
@@ -6310,6 +6811,16 @@ def interpretive_summary_for_row(
         "el estudio aporta evidencia sustantiva útil para delimitar mecanismo, contexto y alcance inferencial.",
     )
     work_type = nice_value(row.get("work_type")).lower()
+    if profile == "ai_security_harness":
+        family = security_harness_evidence_family(row)
+        threat = no_fragment_label(row.get("threat_model"), "amenaza descrita por el estudio")
+        control = no_fragment_label(row.get("control_architecture"), "control de seguridad descrito por el estudio")
+        enforcement = no_fragment_label(row.get("enforcement_point"), "punto de aplicación descrito por el estudio")
+        return (
+            f"{title} entra en la revisión porque aporta evidencia trazable en la familia {family.lower()}. "
+            f"Evalúa {control} frente a {threat}, con aplicación en {enforcement}. "
+            f"Metodológicamente se articula como {method}. Su aportación central es: {result}"
+        )
     if profile == "personality_llm":
         model_scope = model_scope_label(row, width=120)
         task_scope = tasks_or_domains_label(row, width=110)
@@ -6490,6 +7001,30 @@ def study_explanatory_paragraph_for_row(
         if theory.lower() != "no reportado"
         else "El trabajo no explicita un marco teórico fuerte, de modo que su aportación es más instrumental que acumulativa en términos conceptuales."
     )
+    if profile == "ai_security_harness":
+        threat = no_fragment_label(row.get("threat_model"), "amenaza no reportada con precisión")
+        control = no_fragment_label(row.get("control_architecture"), "control no reportado con precisión")
+        enforcement = no_fragment_label(row.get("enforcement_point"), "punto de aplicación no reportado")
+        adaptivity = no_fragment_label(row.get("attacker_adaptivity"), "adaptatividad del atacante no reportada")
+        efficacy = no_fragment_label(row.get("attack_success_rate"), "métrica de eficacia no reportada")
+        utility = no_fragment_label(row.get("utility_impact"), "impacto en utilidad no reportado")
+        overhead = "; ".join(
+            value
+            for value in (
+                no_fragment_label(row.get("latency_overhead"), ""),
+                no_fragment_label(row.get("cost_overhead"), ""),
+            )
+            if value
+        ) or "sobrecoste no reportado"
+        robustness = no_fragment_label(row.get("robustness_evidence"), "robustez no reportada")
+        failure = no_fragment_label(row.get("failure_modes"), "fallo residual no reportado")
+        return (
+            f"Desde el punto de vista del diseño, se trata de un estudio {design_label} apoyado en {method}. "
+            f"{design_detail_clause} Protege frente a {threat} mediante {control}, aplicado en {enforcement}; la capacidad del atacante se clasifica como {adaptivity}. "
+            f"El comparador principal es {comparators}. La eficacia se reporta como {efficacy}, el efecto sobre uso legítimo como {utility} y el sobrecoste como {overhead}. "
+            f"La evidencia de robustez es {robustness} y el fallo residual recuperable es {failure}. "
+            f"Para la pregunta de investigación, esto importa así: {result_sentence} {confidence_phrase}"
+        )
     if profile == "personality_llm":
         model_clause = (
             f"El estudio examina de forma explícita {model_scope}."
@@ -6663,6 +7198,11 @@ def study_explanatory_paragraph_for_row(
 
 
 def comparative_takeaway_for_row(row: dict[str, str], profile: str = "software_architecture") -> str:
+    if profile == "ai_security_harness":
+        return (
+            f"Aporta evidencia sobre {security_harness_evidence_family(row).lower()} y permite comparar amenaza, "
+            "punto de aplicación, baseline, eficacia, utilidad, coste y fallo residual frente a estudios con contrato defensivo menos completo."
+        )
     if profile == "personality_llm":
         return (
             "Aporta sobre todo evidencia sobre medición, control o efectos de personalidad en LLMs "
@@ -6697,7 +7237,33 @@ def comparative_takeaway_for_row(row: dict[str, str], profile: str = "software_a
 
 
 def study_metadata_table(row: dict[str, str], profile: str = "generic") -> str:
-    if profile == "social_sciences":
+    if profile == "ai_security_harness":
+        fields = [
+            ["Campo", "Valor"],
+            ["Tipo de trabajo", table_label(display_work_type(row.get("work_type")))],
+            ["Diseño", no_fragment_label(design_detail_label(row, width=150), "diseño descrito en el texto completo")],
+            ["Modelos o sistemas protegidos", model_scope_label(row, width=150)],
+            ["Harness o defensa", nice_value(row.get("security_harness_name"))],
+            ["Arquitectura de control", nice_value(row.get("control_architecture"))],
+            ["Punto de aplicación", nice_value(row.get("enforcement_point"))],
+            ["Modelo de amenaza", nice_value(row.get("threat_model"))],
+            ["Tipo de ataque", nice_value(row.get("attack_type"))],
+            ["Adaptatividad del atacante", nice_value(row.get("attacker_adaptivity"))],
+            ["Entorno o benchmark", first_nonempty(row.get("evaluation_setting"), benchmark_dataset_label(row, width=140))],
+            ["Baseline o comparador", comparators_label(row, width=140)],
+            ["Métricas de seguridad", nice_value(row.get("security_metrics"))],
+            ["Tasa de éxito del ataque", nice_value(row.get("attack_success_rate"))],
+            ["Falsos positivos", nice_value(row.get("false_positive_rate"))],
+            ["Impacto en utilidad", nice_value(row.get("utility_impact"))],
+            ["Sobrecoste de latencia", nice_value(row.get("latency_overhead"))],
+            ["Sobrecoste económico o computacional", nice_value(row.get("cost_overhead"))],
+            ["Evidencia de robustez", nice_value(row.get("robustness_evidence"))],
+            ["Modos de fallo", nice_value(row.get("failure_modes"))],
+            ["Código o artefactos", nice_value(row.get("code_or_artifact_availability"))],
+            ["Conclusión defensiva", nice_value(row.get("security_conclusion"))],
+            ["Confianza de extracción", nice_value(row.get("extraction_confidence"))],
+        ]
+    elif profile == "social_sciences":
         fields = [
             ["Campo", "Valor"],
             ["Tipo de trabajo", table_label(display_work_type(row.get("work_type")))],
@@ -7387,6 +7953,12 @@ def publication_research_question_en(context: dict[str, str], profile: str) -> s
             "What empirical evidence exists on how artificial intelligence, generative AI, and LLM-based systems help university faculty "
             f"improve teaching, assessment, feedback, curriculum design, academic productivity, and educational quality {timeframe_en}?"
         )
+    if profile == "ai_security_harness":
+        return (
+            "Which architectures, controls, and evaluation strategies for security harnesses protecting generative models and agentic systems "
+            "most consistently reduce prompt injection and jailbreak attacks, unsafe tool use, data leakage, and policy violations, and under "
+            "which threats, comparative designs, and costs do they outperform alternatives or baselines?"
+        )
     if profile in {"social_sciences", "education", "management"}:
         translated = translate_social_phrase_en(context.get("research_question"))
         if translated:
@@ -7833,7 +8405,15 @@ def manuscript_front_matter(
 
 
 def is_domain_general_profile(profile: str) -> bool:
-    return profile in {"creativity_llm", "ai_higher_education_teaching", "social_sciences", "education", "management", "generic"}
+    return profile in {
+        "ai_security_harness",
+        "creativity_llm",
+        "ai_higher_education_teaching",
+        "social_sciences",
+        "education",
+        "management",
+        "generic",
+    }
 
 
 def review_subject_label_es(context: dict[str, str]) -> str:
@@ -7843,6 +8423,8 @@ def review_subject_label_es(context: dict[str, str]) -> str:
 
 def review_subject_label_en(context: dict[str, str]) -> str:
     profile = detect_review_profile(context)
+    if profile == "ai_security_harness":
+        return "security harnesses for generative models and agentic systems"
     if profile == "creativity_llm":
         return "creativity in LLMs and generative AI"
     if profile == "ai_higher_education_teaching":
@@ -7854,6 +8436,11 @@ def review_subject_label_en(context: dict[str, str]) -> str:
 
 
 def domain_focus_sentence(profile: str) -> str:
+    if profile == "ai_security_harness":
+        return (
+            "La síntesis separa amenaza, superficie, arquitectura de control, punto de aplicación, atacante, baseline, "
+            "eficacia, falsos positivos, utilidad, latencia, coste, robustez y fallo residual."
+        )
     if profile == "creativity_llm":
         return (
             "La síntesis separa tareas creativas, instrumentos de evaluación, modelos analizados, comparadores humanos, "
@@ -7876,6 +8463,11 @@ def domain_focus_sentence(profile: str) -> str:
 
 
 def domain_default_keywords(profile: str) -> tuple[str, str]:
+    if profile == "ai_security_harness":
+        return (
+            "harnesses de seguridad, modelos generativos, sistemas agénticos, prompt injection, jailbreak, guardrails, seguridad de herramientas, evaluación adversarial, revisión sistemática",
+            "security harnesses, generative models, agentic systems, prompt injection, jailbreak, guardrails, tool security, adversarial evaluation, systematic review",
+        )
     if profile == "creativity_llm":
         return (
             "creatividad en LLMs, modelos de lenguaje, IA generativa, pensamiento divergente, originalidad, novedad, evaluación de creatividad, revisión sistemática",
@@ -7906,6 +8498,11 @@ def domain_title_pair(context: dict[str, str], focus_count: int) -> tuple[str, s
     profile = detect_review_profile(context)
     timeframe_es = review_timeframe_phrase_es(context)
     timeframe_en = review_timeframe_phrase_en(context)
+    if profile == "ai_security_harness":
+        return (
+            f"Harnesses de seguridad para modelos generativos y sistemas agénticos {timeframe_es}: revisión sistemática de literatura y síntesis focal de {focus_count} estudios",
+            f"Security harnesses for generative models and agentic systems {timeframe_en}: a systematic literature review and focal synthesis of {focus_count} studies",
+        )
     if profile == "creativity_llm":
         return (
             f"Creatividad en modelos LLM e IA generativa {timeframe_es}: revisión sistemática de literatura y síntesis focal de {focus_count} estudios",
@@ -8010,7 +8607,8 @@ def build_title_abstract_section_domain(
         f"La pregunta de investigación fue: {rq_text} "
         f"{focal_scope_es}{empirical_design_sentence} "
         f"{abstract_argument_es} "
-        "La contribución del artículo es ofrecer una síntesis reproducible basada en DOI público, PDF local, extracción estructurada, matriz de selección y anexos auditables, no solo una narración agregada de la literatura."
+        "La contribución del artículo es ofrecer una síntesis reproducible basada en DOI público, PDF local, extracción estructurada, matriz de selección y anexos auditables, no solo una narración agregada de la literatura. "
+        "La reproducibilidad se refiere a decisiones, matrices y artefactos derivados; los PDFs fuente solo pueden redistribuirse cuando su licencia lo permite."
     )
     abstract_en = (
         f"This systematic literature review examines research on {topic_en_sentence} {review_timeframe_phrase_en(context)}. "
@@ -8020,7 +8618,8 @@ def build_title_abstract_section_domain(
         f"The guiding research question was: {publication_research_question_en(context, profile)} "
         f"{focal_scope_en}{empirical_design_sentence_en} "
         + (abstract_argument_en + " " if abstract_argument_en else "")
-        + "The contribution is a reproducible full-text synthesis grounded in public DOI traceability, local PDF evidence, structured extraction, a visible selection matrix, and auditable appendices."
+        + "The contribution is a reproducible full-text synthesis grounded in public DOI traceability, local PDF evidence, structured extraction, a visible selection matrix, and auditable appendices. "
+        + "Reproducibility applies to decisions, matrices, and derived artifacts; source PDFs may only be redistributed when their licenses permit it."
     )
     return manuscript_front_matter(
         title=title,
@@ -8144,10 +8743,291 @@ def creativity_family_synthetic_reading(family: str, members: list[dict[str, str
     )
 
 
+def security_harness_evidence_family(row: dict[str, str]) -> str:
+    """Group defenses by protected surface rather than by product name."""
+    blob = normalized_text(
+        " ".join(
+            [
+                row.get("threat_model", ""),
+                row.get("attack_type", ""),
+                row.get("control_architecture", ""),
+                row.get("enforcement_point", ""),
+                row.get("title_original", ""),
+                row.get("tasks_or_domains", ""),
+                row.get("key_findings", ""),
+            ]
+        )
+    )
+    if re.search(r"tool|function call|herramient|capability|permission|sandbox", blob):
+        return "Herramientas, permisos y aislamiento"
+    if re.search(r"indirect prompt injection|prompt injection indirecta|retrieval|rag|context|memory|memoria", blob):
+        return "Contexto, RAG y prompt injection indirecta"
+    if re.search(r"data exfiltration|secret|privacy|leak|fuga|exfiltr", blob):
+        return "Exfiltración, secretos y privacidad"
+    if re.search(r"jailbreak|policy bypass|policy violation|guardrail|filter|firewall", blob):
+        return "Jailbreak y cumplimiento de políticas"
+    if re.search(r"runtime|monitor|verifier|output|salida|response", blob):
+        return "Monitorización, verificación y salida"
+    return "Arquitectura y evaluación integral del harness"
+
+
+def security_family_synthetic_reading(family: str, members: list[dict[str, str]]) -> str:
+    total = len(members)
+    readings = {
+        "Herramientas, permisos y aislamiento": "sitúan la seguridad en la capacidad de actuar: permisos mínimos, sandbox y validación de llamadas reducen impacto aunque el modelo sea manipulado",
+        "Contexto, RAG y prompt injection indirecta": "tratan documentos, recuperación y memoria como entradas no confiables y desplazan el control hacia procedencia, aislamiento y separación de instrucciones",
+        "Exfiltración, secretos y privacidad": "evalúan si el control evita que datos o secretos crucen límites, una propiedad que no queda cubierta por bloquear lenguaje ofensivo",
+        "Jailbreak y cumplimiento de políticas": "miden resistencia a evasión de políticas, pero su fuerza depende de incluir ataques adaptativos y utilidad legítima",
+        "Monitorización, verificación y salida": "colocan detección y decisión durante o después de la inferencia, con el riesgo de reaccionar tarde si ya ocurrió una acción",
+        "Arquitectura y evaluación integral del harness": "comparan varias capas o proponen evaluaciones de sistema, útiles cuando mantienen amenaza, baseline y coste explícitos",
+    }
+    return f"{total} estudios {readings.get(family, 'aportan evidencia sobre controles de seguridad y sus límites operacionales')}."
+
+
+def security_harness_signal_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+    return {
+        "threat": sum(1 for row in rows if security_field_reported(row.get("threat_model"))),
+        "control": sum(1 for row in rows if security_field_reported(row.get("control_architecture"))),
+        "enforcement": sum(1 for row in rows if security_field_reported(row.get("enforcement_point"))),
+        "baseline": sum(1 for row in rows if security_field_reported(row.get("baselines_or_comparators"))),
+        "adaptive": sum(
+            1
+            for row in rows
+            if adaptive_attacker_reported(row.get("attacker_adaptivity"))
+        ),
+        "asr": sum(1 for row in rows if security_field_reported(row.get("attack_success_rate"))),
+        "false_positive": sum(
+            1 for row in rows if security_field_reported(row.get("false_positive_rate"))
+        ),
+        "utility": sum(1 for row in rows if security_field_reported(row.get("utility_impact"))),
+        "latency": sum(1 for row in rows if security_field_reported(row.get("latency_overhead"))),
+        "cost": sum(1 for row in rows if security_field_reported(row.get("cost_overhead"))),
+        "robustness": sum(
+            1 for row in rows if security_field_reported(row.get("robustness_evidence"))
+        ),
+        "failure": sum(1 for row in rows if security_field_reported(row.get("failure_modes"))),
+        "artifact": sum(
+            1
+            for row in rows
+            if open_artifact_reported(row.get("code_or_artifact_availability"))
+        ),
+    }
+
+
+def security_frontier_result_lines(review_dir: pathlib.Path) -> list[str]:
+    """Render typed comparison clusters without inventing a universal winner."""
+
+    rows = read_csv_rows(
+        review_dir / "analysis" / "security" / "dominance-frontier.csv"
+    )
+    if not rows:
+        return []
+    threat_labels = {
+        "prompt_injection": "Prompt injection",
+        "jailbreak": "Jailbreak",
+        "tool_poisoning_or_misuse": "Abuso o envenenamiento de herramientas",
+        "memory_or_retrieval_poisoning": "Envenenamiento de memoria o RAG",
+        "data_exfiltration": "Exfiltración de datos",
+        "other_or_unspecified": "Amenaza no tipificada",
+    }
+    control_labels = {
+        "provenance_or_information_flow": "Procedencia y flujo de información",
+        "tool_authorization": "Autorización de herramientas",
+        "memory_or_retrieval_control": "Control de memoria o recuperación",
+        "causal_or_counterfactual_verification": "Verificación causal o contrafactual",
+        "policy_or_intent_guardrail": "Guardrail de política o intención",
+        "activation_or_representation_monitor": "Monitor de activaciones o representaciones",
+        "runtime_trajectory_monitor": "Monitor de trayectoria en runtime",
+        "input_filtering": "Filtrado de entrada",
+        "output_filtering": "Filtrado de salida",
+        "sandboxing_or_isolation": "Sandbox o aislamiento",
+        "cryptographic_or_structural_containment": "Contención criptográfica o estructural",
+        "multi_layer_defense": "Defensa multicapa",
+        "other_or_unspecified": "Control no tipificado de forma homogénea",
+    }
+    status_labels = {
+        "replicated_frontier_candidate": "Candidata replicada",
+        "emerging_frontier": "Frontera emergente",
+        "security_effect_only": "Eficacia sin coste completo",
+        "insufficient_comparability": "Comparación insuficiente",
+        "insufficient_taxonomy": "No tipificable",
+    }
+    status_order = {
+        "replicated_frontier_candidate": 0,
+        "emerging_frontier": 1,
+        "security_effect_only": 2,
+        "insufficient_comparability": 3,
+        "insufficient_taxonomy": 4,
+    }
+
+    def family_label(value: str, labels: dict[str, str]) -> str:
+        parts = [part for part in str(value or "").split("+") if part]
+        return " + ".join(
+            labels.get(part, part.replace("_", " ")) for part in parts
+        )
+
+    selected = sorted(
+        [row for row in rows if parse_int(row.get("studies"), 0) >= 2],
+        key=lambda row: (
+            status_order.get(row.get("frontier_status", ""), 9),
+            -parse_int(row.get("studies"), 0),
+            row.get("threat_family", ""),
+            row.get("control_family", ""),
+        ),
+    )[:10]
+    table_rows = [
+        [
+            family_label(row.get("threat_family", ""), threat_labels),
+            family_label(row.get("control_family", ""), control_labels),
+            row.get("studies", "0"),
+            f"{row.get('with_explicit_baseline', '0')}/{row.get('studies', '0')}",
+            f"{row.get('with_adaptive_attacker', '0')}/{row.get('studies', '0')}",
+            (
+                f"FP {row.get('with_false_positive_rate', '0')}; "
+                f"utilidad {row.get('with_utility_impact', '0')}; "
+                f"latencia/coste {row.get('with_latency_or_cost', '0')}"
+            ),
+            status_labels.get(
+                row.get("frontier_status", ""),
+                row.get("frontier_status", "").replace("_", " "),
+            ),
+        ]
+        for row in selected
+    ]
+    replicated = [
+        row
+        for row in rows
+        if row.get("frontier_status") == "replicated_frontier_candidate"
+    ]
+    residual_n = sum(
+        parse_int(row.get("studies"), 0)
+        for row in rows
+        if row.get("frontier_status") == "insufficient_taxonomy"
+    )
+    if replicated:
+        replicated_text = "; ".join(
+            (
+                f"{family_label(row.get('threat_family', ''), threat_labels)} con "
+                f"{family_label(row.get('control_family', ''), control_labels)} "
+                f"(n={row.get('studies', '0')})"
+            )
+            for row in replicated
+        )
+        interpretation = (
+            f"La señal comparativa más madura aparece en {replicated_text}. "
+            "Debe leerse como dirección prioritaria para evaluación y diseño, no como ganador universal: "
+            "la equivalencia de amenaza, baseline, métrica y coste todavía debe comprobarse estudio por estudio."
+        )
+    else:
+        interpretation = (
+            "Ninguna combinación tipificada alcanza replicación suficiente para sostener una candidata de "
+            "dominancia. El corpus permite comparar efectos locales, pero no recomendar una familia como mejor."
+        )
+    residual_lines = (
+        [
+            (
+                f"Además, {residual_n} configuraciones quedan en familias residuales no tipificadas. "
+                "Su volumen no se interpreta como réplica: agrupar mecanismos desconocidos produciría una falsa mayoría."
+            ),
+            "",
+        ]
+        if residual_n
+        else []
+    )
+    return [
+        "Tabla 8A. Fronteras de dominancia condicionada entre familias de harnesses.",
+        markdown_table(
+            [
+                "Amenaza",
+                "Familia de control",
+                "N",
+                "Baseline",
+                "Atacante adaptativo",
+                "Trade-offs cuantificados (N)",
+                "Estado",
+            ],
+            table_rows,
+        ),
+        "",
+        (
+            "Los estados se asignan con reglas operativas distintas. `Candidata replicada` exige al menos "
+            "dos estudios de la misma combinación tipificada de amenaza y control con evidencia suficiente "
+            "para probar dominancia condicionada. `Frontera emergente` indica que existe una comparación "
+            "con trade-offs recuperables, pero falta réplica o robustez. `Eficacia sin coste completo` "
+            "identifica reducción de ataque sin cobertura suficiente de utilidad, falsos positivos, latencia "
+            "o coste. `Comparación insuficiente` señala que ni eficacia ni compensaciones permiten una "
+            "comparación justa. `No tipificable` se reserva para grupos residuales donde la amenaza o el "
+            "mecanismo de control no pueden clasificarse de forma homogénea; disponer de baseline no corrige "
+            "esa falta de equivalencia mecanística."
+        ),
+        "",
+        (
+            "En las columnas `Baseline` y `Atacante adaptativo`, la fracción x/y significa número de estudios "
+            "que reportan la característica sobre el total de estudios de esa familia. En `Trade-offs`, FP "
+            "indica falsos positivos y cada recuento identifica cuántos estudios cuantifican utilidad o "
+            "latencia/coste; una fracción alta no expresa mayor eficacia, sino mejor cobertura de reporte."
+        ),
+        "",
+        interpretation,
+        "",
+        *residual_lines,
+        *(
+            [
+                (
+                    "La no tipificación aparece cuando el estudio describe el control con una etiqueta genérica, "
+                    "combina mecanismos sin aislar su contribución o no aporta detalle operacional suficiente para "
+                    "mapearlo de forma estable a procedencia, autorización, aislamiento, memoria, verificación o "
+                    "filtrado. La categoría conserva esos trabajos sin atribuirles una homogeneidad defensiva que "
+                    "la fuente no permite sostener."
+                ),
+                "",
+            ]
+            if residual_n
+            else []
+        ),
+        (
+            "La tabla no agrega ASR, falsos positivos o utilidad entre benchmarks incompatibles. "
+            "Su función es identificar dónde existe evidencia suficiente para una comparación condicionada y "
+            "dónde el siguiente estudio debería replicar amenaza, baseline y costes antes de afirmar superioridad."
+        ),
+        "",
+    ]
+
+
 def domain_aggregate_result_rows(focus_rows: list[dict[str, str]], profile: str) -> list[list[str]]:
     total = len(focus_rows)
     if total <= 0:
         return [["Sin estudios focales", "0/0", "No hay evidencia suficiente para sintetizar."]]
+    if profile == "ai_security_harness":
+        families = Counter(security_harness_evidence_family(row) for row in focus_rows)
+        counts = security_harness_signal_counts(focus_rows)
+        return [
+            [
+                "Superficies y familias defensivas",
+                counter_summary(families, total, limit=6),
+                "La clasificación separa la superficie protegida; un mismo estudio puede combinar capas, pero se resume por su función defensiva dominante.",
+            ],
+            [
+                "Contrato mínimo de comparación",
+                f"amenaza: {counts['threat']}/{total}; control: {counts['control']}/{total}; punto de aplicación: {counts['enforcement']}/{total}; baseline: {counts['baseline']}/{total}",
+                "Sin amenaza, control, enforcement y baseline recuperables no puede sostenerse una comparación de superioridad.",
+            ],
+            [
+                "Eficacia defensiva",
+                f"ASR o métrica equivalente: {counts['asr']}/{total}; ataques adaptativos: {counts['adaptive']}/{total}; robustez: {counts['robustness']}/{total}",
+                "La cobertura de ataques estáticos informa rendimiento local; la robustez exige adaptación, transferencia o ataques no vistos.",
+            ],
+            [
+                "Coste de seguridad",
+                f"falsos positivos: {counts['false_positive']}/{total}; utilidad: {counts['utility']}/{total}; latencia: {counts['latency']}/{total}; coste: {counts['cost']}/{total}",
+                "Un harness no es mejor si reduce ataques a costa de bloquear uso legítimo o introducir un sobrecoste operacional no declarado.",
+            ],
+            [
+                "Fallo residual y reproducibilidad",
+                f"modos de fallo: {counts['failure']}/{total}; código o artefacto: {counts['artifact']}/{total}",
+                "Reportar fallos y artefactos permite distinguir una defensa generalizable de un ajuste opaco al benchmark.",
+            ],
+        ]
     if profile not in {"social_sciences", "creativity_llm", "ai_higher_education_teaching", "education", "management"} and is_ai_workload_rows(focus_rows):
         empirical_rows = empirical_rows_only(focus_rows)
         support_rows = support_rows_only(focus_rows)
@@ -8372,6 +9252,8 @@ def domain_focus_summary_rows(focus_rows: list[dict[str, str]], profile: str) ->
     for row in rows_for_buckets:
         if ai_workload:
             key = ai_workload_evidence_family(row)
+        elif profile == "ai_security_harness":
+            key = security_harness_evidence_family(row)
         elif profile == "creativity_llm":
             key = creativity_evidence_family(row)
         elif profile == "ai_higher_education_teaching":
@@ -8404,6 +9286,8 @@ def domain_focus_summary_rows(focus_rows: list[dict[str, str]], profile: str) ->
         reading = (
             ai_workload_family_synthetic_reading(family, members)
             if ai_workload
+            else security_family_synthetic_reading(family, members)
+            if profile == "ai_security_harness"
             else creativity_family_synthetic_reading(family, members)
             if profile == "creativity_llm"
             else social_family_synthetic_reading(family, members)
@@ -8419,7 +9303,7 @@ def domain_focus_summary_rows(focus_rows: list[dict[str, str]], profile: str) ->
                 dominant_label([label for label, _ in work_types.most_common(2)]),
                 dominant_label([label for label, _ in designs.most_common(2)]),
                 summarize_phrase_soft(dominant_label(methods), width=82),
-                reading if ai_workload or profile in {"creativity_llm", "social_sciences"} else summarize_phrase_soft(reading, width=115),
+            reading if ai_workload or profile in {"ai_security_harness", "creativity_llm", "social_sciences"} else summarize_phrase_soft(reading, width=115),
             ]
         )
     covered = sum(parse_int(row[1], 0) for row in rows)
@@ -8520,7 +9404,31 @@ def build_results_authorial_stance_lines(focus_rows: list[dict[str, str]], conte
     diagnostics = conclusion_reporting_diagnostics(focus_rows)
     empirical_n = len(empirical_rows_only(focus_rows))
     support_n = max(len(focus_rows) - empirical_n, 0)
-    if is_ai_workload_context(context):
+    if profile == "ai_security_harness":
+        counts = security_harness_signal_counts(focus_rows)
+        rows = [
+            [
+                "Afirmación que sí sostiene el artículo",
+                "La superioridad defensiva solo puede afirmarse dentro de un contrato compartido de amenaza, superficie, atacante, punto de aplicación y baseline.",
+                f"Amenaza recuperable en {counts['threat']}/{len(focus_rows)} estudios, baseline en {counts['baseline']}/{len(focus_rows)} y eficacia defensiva cuantificada en {counts['asr']}/{len(focus_rows)}.",
+            ],
+            [
+                "Afirmación que no sostiene",
+                "No existe evidencia para ordenar todos los harnesses en un ranking universal ni para tratar una tasa de bloqueo aislada como seguridad operacional.",
+                f"Solo {counts['adaptive']}/{len(focus_rows)} estudios prueban atacantes adaptativos y la cobertura de utilidad, falsos positivos, latencia y coste sigue siendo desigual.",
+            ],
+            [
+                "Condición de frontera",
+                "Una configuración domina de forma condicionada cuando reduce el riesgo frente al mismo atacante y baseline sin degradar de manera material la utilidad o desplazar un coste inaceptable.",
+                "Si seguridad, utilidad y coste se compensan, el resultado correcto es una frontera de decisión, no un campeón único.",
+            ],
+            [
+                "Qué cambiaría la tesis",
+                "Replicaciones entre modelos, dominios y ataques adaptativos, con artefactos abiertos y medición conjunta de seguridad, utilidad, latencia, coste y fallo residual.",
+                f"Robustez o transferencia aparece en {counts['robustness']}/{len(focus_rows)} estudios y modos de fallo en {counts['failure']}/{len(focus_rows)}; ampliar ambas señales permitiría convertir fronteras emergentes en recomendaciones más fuertes.",
+            ],
+        ]
+    elif is_ai_workload_context(context):
         primary_rows = empirical_rows_only(focus_rows) or focus_rows
         counts = ai_workload_signal_counts(primary_rows)
         rows = [
@@ -8600,12 +9508,13 @@ def build_results_authorial_stance_lines(focus_rows: list[dict[str, str]], conte
                 "La revisión queda diseñada como infraestructura de actualización, no como cierre retórico.",
             ],
         ]
+    table_number = "8B" if profile == "ai_security_harness" else "8A"
     return [
         "## Lectura interpretativa de los resultados",
         "",
         "Antes de continuar con la síntesis, el artículo fija qué lectura autoriza el corpus y qué lectura no autoriza. Esta matriz evita que las tablas funcionen como decoración: cada número debe convertirse en una afirmación, una cautela o una condición de frontera.",
         "",
-        "Tabla 8A. Matriz de toma de posición interpretativa.",
+        f"Tabla {table_number}. Matriz de toma de posición interpretativa.",
         markdown_table(["Plano", "Lectura del artículo", "Base o cautela"], rows),
         "",
     ]
@@ -8752,6 +9661,13 @@ def build_introduction_section_domain(selected_rows: list[dict[str, str]], conte
         gap = (
             "El problema central es que una misma pregunta puede esconder diseños muy distintos: encuestas transversales, paneles, experimentos, análisis de contenido, datos de plataformas, entrevistas o revisiones. Sin una síntesis sistemática, una asociación puede confundirse con causalidad, un contexto nacional con evidencia general y una variable nominalmente igual con mediciones no equivalentes."
         )
+    elif profile == "ai_security_harness":
+        opening = (
+            "Los modelos generativos dejan de ser componentes pasivos cuando recuperan documentos, mantienen memoria, llaman herramientas, escriben en sistemas externos o coordinan otros agentes. En ese momento, la seguridad ya no depende únicamente de la respuesta lingüística del modelo: depende de quién introduce datos, qué instrucciones conservan autoridad, qué capacidades puede ejecutar el sistema y qué daño sigue siendo posible después de una evasión."
+        )
+        gap = (
+            "La literatura ha respondido con filtros, guardrails, clasificadores, separación entre instrucciones y datos, controles de procedencia, autorización de herramientas, sandboxing, monitores de trayectoria y verificadores de salida. Sin embargo, estas soluciones no protegen la misma superficie ni interrumpen el ataque en el mismo punto. Una tasa de bloqueo aislada puede ocultar que el atacante era estático, que la alternativa comparada era débil, que la utilidad legítima cayó o que la defensa trasladó el coste a latencia, tokens o revisión humana."
+        )
     else:
         opening = (
             f"La literatura reciente sobre {topic} crece con rapidez y combina estudios empíricos, propuestas conceptuales, evaluaciones, benchmarks y revisiones parciales. En ese contexto, una revisión sistemática permite separar volumen documental de evidencia realmente comparable."
@@ -8759,6 +9675,18 @@ def build_introduction_section_domain(selected_rows: list[dict[str, str]], conte
         gap = (
             "El problema no es solo encontrar estudios, sino decidir cuáles responden a la pregunta, cuáles aportan evidencia verificable y cuáles quedan fuera por falta de método, trazabilidad o texto completo recuperable."
         )
+    security_depth = []
+    if profile == "ai_security_harness":
+        security_depth = [
+            "Esta heterogeneidad obliga a definir el objeto revisado con precisión. En este artículo, un harness de seguridad es el conjunto de controles externos o acoplados al modelo que observan, restringen, verifican, contienen o recuperan la operación del sistema durante inferencia y uso. La definición incluye controles en entrada, contexto, recuperación, memoria, razonamiento, llamadas de herramientas, salida y persistencia; excluye el entrenamiento de seguridad del modelo base cuando no existe una capa operacional evaluable. `Guardrail` se usa solo para el subconjunto de controles que clasifica, filtra o aplica una política sobre entradas, trayectorias o salidas; no se trata como sinónimo de toda la arquitectura del harness.",
+            "",
+            "El problema científico no consiste, por tanto, en preguntar qué producto bloquea más ataques en abstracto. Consiste en reconstruir un contrato comparativo: amenaza, capacidad del atacante, superficie protegida, mecanismo de control, punto de enforcement, baseline, reducción observada del riesgo, utilidad preservada, sobrecoste y modo de fallo residual. Dos defensas solo pueden ordenarse cuando ese contrato es suficientemente equivalente; si no lo es, sus cifras describen experimentos distintos y no una competición común.",
+            "",
+            "La evaluación adversarial añade una dificultad adicional. Un conjunto fijo de prompts mide cobertura sobre ejemplos conocidos, mientras que un adversario adaptativo busca la frontera del control, cambia la formulación, desplaza la carga maliciosa a documentos o herramientas y explota las decisiones del sistema completo. Esta diferencia separa una demostración local de una afirmación de robustez operacional y explica por qué el artículo trata adaptatividad, transferencia, ablación y fallos conocidos como evidencia central, no como anexos secundarios.",
+            "",
+            "La revisión adopta además una perspectiva multiobjetivo. Bloquear más no constituye una mejora si el harness inutiliza tareas legítimas, multiplica falsos positivos, introduce una latencia incompatible con el uso o desplaza el riesgo a una capa no observada. La decisión relevante es una frontera condicionada entre seguridad, utilidad, disponibilidad, coste y recuperabilidad. Esa frontera puede producir configuraciones prometedoras, pero no autoriza un ganador universal fuera de la amenaza y el entorno evaluados.",
+            "",
+        ]
     return "\n".join(
         [
             "# Introducción",
@@ -8767,13 +9695,20 @@ def build_introduction_section_domain(selected_rows: list[dict[str, str]], conte
             "",
             gap + " " + citation_block(anchor_ids[4:8]) + ".",
             "",
+            *security_depth,
             f"Este artículo aborda esa brecha mediante una revisión sistemática guiada por la pregunta: {rq} La unidad de análisis es el estudio publicado y leído en texto completo, no la mera presencia de palabras clave en bases bibliográficas.",
             "",
             short_authorial_position_sentence(selected_rows, context),
             "",
             "La lógica de la revisión es deliberadamente conservadora: un estudio solo sostiene afirmaciones de síntesis cuando dispone de DOI público, PDF local legible, extracción estructurada y una justificación visible dentro de la matriz de selección. Esta regla reduce cobertura bruta, pero aumenta la auditabilidad del manuscrito final.",
+            "",
+            (
+                "La contribución buscada es doble. En el plano sustantivo, el artículo identifica qué combinaciones defensivas muestran la señal comparativa mejor sustentada y bajo qué límites dejan de dominar. En el plano teórico, propone una gramática para acumular evidencia sin confundir detección, prevención, contención y recuperación. Esta gramática convierte la seguridad en una propiedad situada del sistema y obliga a que cualquier afirmación de superioridad declare también su coste y su frontera de fallo."
+                if profile == "ai_security_harness"
+                else ""
+            ),
         ]
-    ) + "\n"
+    ).rstrip() + "\n"
 
 
 def build_theoretical_framework_section_domain(focus_rows: list[dict[str, str]], context: dict[str, str]) -> str:
@@ -8805,6 +9740,10 @@ def build_theoretical_framework_section_domain(focus_rows: list[dict[str, str]],
         lens = (
             "La revisión usa como lente analítica la relación entre constructo, mecanismo, medición y contexto. Esta decisión evita confundir presencia de redes sociales, polarización, confianza o democracia con una relación causal homogénea; cada estudio se compara por lo que mide, cómo lo mide, sobre quién lo mide y bajo qué contexto institucional."
         )
+    elif profile == "ai_security_harness":
+        lens = (
+            "La revisión usa como lente analítica la relación amenaza-superficie-control-enforcement-resultado. La amenaza define la capacidad y el objetivo del atacante; la superficie localiza dónde entra o se materializa el riesgo; el control identifica el mecanismo que interrumpe la cadena; el enforcement determina cuándo una decisión deja de ser solo recomendación; y el resultado debe medir simultáneamente reducción de daño, utilidad, coste y fallo residual."
+        )
     else:
         lens = (
             "La revisión usa como lente analítica la relación entre unidad de análisis, método, evidencia recuperable y resultado reportado. Esta decisión evita imponer una teoría externa cuando el propio corpus todavía muestra heterogeneidad conceptual."
@@ -8824,12 +9763,39 @@ def build_theoretical_framework_section_domain(focus_rows: list[dict[str, str]],
             "3. La productividad se interpreta como señal parcial; la carga de trabajo exige medir también revisión, errores, rework, coordinación, dependencia y coste de control.",
             "4. La aportación teórica del artículo consiste en convertir la promesa de automatización en una contabilidad del trabajo total del sistema.",
         ]
+    elif profile == "ai_security_harness":
+        thesis_lines = [
+            "1. La unidad de comparación no es el modelo ni el nombre del guardrail, sino el contrato operacional completo entre amenaza, superficie, control, punto de enforcement, baseline, eficacia, utilidad, coste y fallo residual.",
+            "2. Detección, prevención, contención y recuperación son funciones defensivas distintas. Un estudio debe declarar cuál implementa y qué daño puede ocurrir si esa función falla.",
+            "3. Cobertura estática y robustez adaptativa no son equivalentes. La segunda exige que el atacante pueda observar, reformular o trasladar su estrategia frente al control desplegado.",
+            "4. La superioridad es condicionada y multiobjetivo. Una defensa domina solo dentro de amenazas comparables y cuando mejora seguridad sin un deterioro desproporcionado de utilidad, disponibilidad o coste.",
+            "5. El modo de fallo no es una nota negativa, sino una propiedad teórica del harness: define la frontera donde hacen falta una capa compensatoria, recuperación o intervención humana.",
+            "6. La acumulación científica requiere taxonomías suficientemente precisas para no convertir controles no tipificados o benchmarks incompatibles en una mayoría artificial.",
+        ]
     else:
         thesis_lines = [
             "1. La revisión trata la evidencia recuperable como condición de interpretación: sin texto completo y extracción trazable, una afirmación no entra en la síntesis focal.",
             f"2. La comparación se organiza por {comparison_axis}, no por popularidad del artículo ni por visibilidad de una etiqueta temática.",
             "3. La heterogeneidad del corpus se reporta como resultado metodológico, no como ruido a ocultar: cuando faltan teoría, muestra, variables, comparadores o validación, esa ausencia pasa a formar parte del diagnóstico.",
             "4. La aportación teórica del artículo consiste en convertir un campo rápido y desigual en una matriz comparable de decisiones, métodos, evidencias, límites y vacíos acumulativos.",
+        ]
+    security_framework = []
+    if profile == "ai_security_harness":
+        security_framework = [
+            "## Modelo conceptual de la defensa operacional",
+            "",
+            "En este marco, el `contrato comparativo` es la unidad mínima que hace interpretable una comparación: especifica amenaza y capacidad del atacante, superficie y activo protegidos, mecanismo de control, punto de enforcement, acción permitida o denegada, baseline, métricas de seguridad y utilidad, latencia, coste, robustez y fallo residual. No es una plantilla administrativa. Es la condición de conmensurabilidad que permite decidir si dos resultados prueban alternativas frente al mismo problema o si describen experimentos que solo comparten vocabulario.",
+            "",
+            "El primer eje del modelo conceptual es la autoridad. Los ataques de prompt injection explotan la dificultad de distinguir instrucciones legítimas, datos no confiables y contenido recuperado que intenta adquirir autoridad. Los controles de procedencia, separación de contexto y flujo de información responden a esta ambigüedad; su hipótesis causal es que el sistema puede impedir que una fuente no autorizada determine una acción aunque el modelo procese su contenido.",
+            "",
+            "El segundo eje es la capacidad. Un agente se vuelve peligroso cuando una salida textual puede transformarse en lectura de secretos, escritura, compra, envío, ejecución o persistencia. Autorización, mínimos privilegios, sandboxing y validación de llamadas actúan sobre esa transición. Su valor no depende de que el modelo reconozca siempre el ataque, sino de reducir qué puede hacer una decisión equivocada y de contener el radio de impacto.",
+            "",
+            "El tercer eje es la observabilidad temporal. Los filtros de entrada actúan antes de que el modelo razone; los monitores de contexto y trayectoria actúan durante la construcción de la acción; los verificadores de salida actúan después de generar una respuesta; y los controles de memoria condicionan interacciones futuras. Ningún punto observa por sí solo toda la cadena. La arquitectura defensiva debe situar el control antes del momento en que el daño se vuelve irreversible.",
+            "",
+            "El cuarto eje es la evaluación. La seguridad empírica debe tratarse como una comparación adversarial y multiobjetivo, no como exactitud de clasificación aislada. ASR, falsos positivos, utilidad, latencia, coste, ataques no vistos, transferencia y disponibilidad describen dimensiones diferentes. La combinación de estas medidas determina si una defensa reduce riesgo operativo o solo desplaza el problema.",
+            "",
+            "De estos ejes emerge una gramática de defensa operacional: autoridad, capacidad, observabilidad y evaluación. Esta gramática no presupone que una familia sea universalmente superior; permite explicar por qué ciertos controles pueden complementarse, por qué otros son redundantes y qué evidencia haría falta para sostener una frontera de dominancia entre configuraciones.",
+            "",
         ]
     return "\n".join(
         [
@@ -8851,6 +9817,7 @@ def build_theoretical_framework_section_domain(focus_rows: list[dict[str, str]],
             "",
             lens,
             "",
+            *security_framework,
             theory_sentence,
             "",
             f"Metodológicamente, la síntesis focal contiene {len(focus_rows)} estudios; {empirical_total} de ellos son empíricos. Dentro de los estudios empíricos, los diseños se distribuyen como {', '.join(f'{table_label(display_empirical_type(label))}: n={count}' for label, count in empirical_counts.most_common()) or 'no reportado con suficiente granularidad'}. Esta distribución importa porque las conclusiones de una revisión sistemática no deben pesar igual cuando proceden de experimentos, benchmarks, estudios cualitativos, revisiones o propuestas teóricas.",
@@ -8875,6 +9842,16 @@ def selection_weight_percent(value: float) -> str:
     return f"{round(value * 100):.0f}%"
 
 
+def review_mode_display(context: dict[str, str]) -> str:
+    """Return one readable mode label without repeating primary metadata."""
+
+    label = normalize_phrase(context.get("review_mode_label"))
+    summary = normalize_phrase(context.get("review_mode_summary"))
+    if label and summary.lower() == f"{label}; principal: {label}".lower():
+        return label
+    return summary or label or "modo metodológico declarado"
+
+
 def focal_score_formula_lines(context: dict[str, str] | None = None) -> list[str]:
     """Return the focal-selection score as a readable Markdown/LaTeX block."""
     context = context or {}
@@ -8890,7 +9867,7 @@ def focal_score_formula_lines(context: dict[str, str] | None = None) -> list[str
         rf"\mathrm{{Score}}_{{i}}={latex_weight(wr)}\,\mathrm{{Rel}}_{{i}}+{latex_weight(wq)}\,\mathrm{{Cal}}_{{i}}+{latex_weight(wp)}\,\mathrm{{Rep}}_{{i}}",
         "$$",
         "",
-        f"donde $\\mathrm{{Rel}}_{{i}}$ representa la relevancia temática del estudio, $\\mathrm{{Cal}}_{{i}}$ su calidad metodológica recuperable y $\\mathrm{{Rep}}_{{i}}$ la corrección de representatividad/diversidad aplicada antes del corte focal. Las ponderaciones proceden del {context.get('review_mode_summary') or context.get('review_mode_label') or 'modo metodológico declarado'} y las tres magnitudes se expresan en escala 0-100.",
+        f"donde $\\mathrm{{Rel}}_{{i}}$ representa la relevancia temática del estudio, $\\mathrm{{Cal}}_{{i}}$ su calidad metodológica recuperable y $\\mathrm{{Rep}}_{{i}}$ la corrección de representatividad/diversidad aplicada antes del corte focal. Las ponderaciones proceden del {review_mode_display(context)} y las tres magnitudes se expresan en escala 0-100.",
         "",
         "Operativamente, la relevancia se asigna por bandas de ajuste temático: sin ajuste suficiente, ajuste tangencial, ajuste directo a la pregunta y ajuste directo con mecanismo, variables y contexto recuperables. La calidad combina confianza de extracción, claridad de diseño, muestra/unidad, método, comparador, resultado y limitaciones recuperables. La representatividad aplica una corrección de diversidad para no saturar el N focal con la misma fuente, familia temática, país, plataforma, diseño o registro casi duplicado. Los valores crudos y el score resultante se conservan en `paper/appendices/data/selection-score-matrix.csv`.",
         "",
@@ -8946,7 +9923,7 @@ def build_method_section_domain(
         if n_min and n_max and n_min != n_max
         else f"{target_n or len(focus_rows)} estudios"
     )
-    source_rows = [[source, str(count)] for source, count in read_search_sources(review_dir).most_common(8)]
+    source_rows = search_source_execution_rows(review_dir)
     score_rows = selection_score_display_rows(review_dir, focus_rows, profile)
     score_component_rows = selection_score_component_rows(review_dir, focus_rows)
     non_focal_rows = non_focal_selection_compact_rows(all_shortlist_rows)
@@ -9019,7 +9996,9 @@ def build_method_section_domain(
             "## Diseño de la revisión sistemática",
             f"La unidad de análisis fue el estudio publicado sobre {topic}. La ventana temporal fue {review_timeframe_phrase_es(context)} y se cerró con fechas exactas en el protocolo y en `searches/search-log.csv`, evitando proyectar la revisión hasta un final de 2026 todavía no observado.",
             "",
-            f"Antes de ejecutar la búsqueda se estableció un modo metodológico: {context.get('review_mode_summary') or context.get('review_mode_label') or 'common-core'}. Esta decisión afecta al marco de pregunta, la descomposición de búsqueda, el cribado, la evaluación crítica, la ponderación del score focal y la forma de síntesis. En consecuencia, la revisión no aplica un molde único a cualquier disciplina: adapta la lógica de comparación a la unidad real de evidencia del campo.",
+            f"Antes de ejecutar la búsqueda se estableció un modo metodológico: {review_mode_display(context)}. Esta decisión afecta al marco de pregunta, la descomposición de búsqueda, el cribado, la evaluación crítica, la ponderación del score focal y la forma de síntesis. En consecuencia, la revisión no aplica un molde único a cualquier disciplina: adapta la lógica de comparación a la unidad real de evidencia del campo.",
+            "",
+            "No se registró un protocolo externo en PROSPERO ni en OSF antes de iniciar la revisión. Esta ausencia no se oculta ni se sustituye por una declaración retrospectiva: delimita el estatus del estudio. Como compensación de transparencia, el paquete conserva la captación inicial fechada, la pregunta, los criterios previos, la estrategia y descomposición de búsqueda, los logs por fuente, las decisiones de cribado, las discrepancias resueltas, los PDFs recuperados, la matriz de extracción y las reglas del corte focal. Una réplica puede así reconstruir qué decisiones precedieron a los resultados y cuáles surgieron durante la síntesis.",
             "",
             "La revisión aplicó una regla conservadora de publicabilidad: DOI público normalizado, PDF local legible y extracción textual trazable. Esta regla puede excluir estudios potencialmente interesantes sin DOI o sin PDF recuperable, pero evita que el artículo final mezcle evidencia auditable con referencias imposibles de verificar.",
             "",
@@ -9027,9 +10006,9 @@ def build_method_section_domain(
             "",
             empirical_scope_paragraph,
             "" if empirical_scope_paragraph else "",
-            "La puntuación fue diseñada como heurística transparente de priorización: la relevancia temática se calcula desde el ajuste a la pregunta, los criterios y las señales recuperables en título, resumen y texto completo; la calidad metodológica se apoya en diseño, muestra, instrumento, método, resultado y limitaciones recuperables; y la representatividad penaliza duplicación excesiva de una misma familia, fuente o tipo de tarea. No se declara acuerdo interjueces humano en esta revisión; en su lugar, el manuscrito documenta scores, sensibilidad alternativa y trazabilidad DOI/PDF para que el corte pueda ser auditado externamente.",
+            "La puntuación fue diseñada como heurística transparente de priorización: la relevancia temática se calcula desde el ajuste a la pregunta, los criterios y las señales recuperables en título, resumen y texto completo; la calidad metodológica se apoya en diseño, muestra, instrumento, método, resultado y limitaciones recuperables; y la representatividad penaliza duplicación excesiva de una misma familia, fuente o tipo de tarea. El score focal no se presenta como una doble codificación humana: el manuscrito publica sus componentes, sensibilidad alternativa y trazabilidad DOI/PDF para que el corte pueda ser auditado externamente.",
             "",
-            f"Como control compensatorio de sensibilidad, el corte focal se recalculó con dos variantes de pesos del score: `0,40/0,40/0,20` y `0,45/0,30/0,25`. En esta revisión, esas variantes conservaron {sensitivity.get('alt_a_overlap', 0)}/{sensitivity.get('target_n', 0)} y {sensitivity.get('alt_b_overlap', 0)}/{sensitivity.get('target_n', 0)} estudios del subconjunto focal. Esta prueba no equivale a acuerdo interjueces humano, pero sí verifica que el N final no depende de una única ponderación oportunista; la validación humana de una submuestra se declara como requisito recomendable para envío editorial exigente.",
+            f"Como control de sensibilidad, el corte focal se recalculó con dos variantes de pesos del score: `0,40/0,40/0,20` y `0,45/0,30/0,25`. En esta revisión, esas variantes conservaron {sensitivity.get('alt_a_overlap', 0)}/{sensitivity.get('target_n', 0)} y {sensitivity.get('alt_b_overlap', 0)}/{sensitivity.get('target_n', 0)} estudios del subconjunto focal. Esta prueba verifica que el N final no depende de una única ponderación oportunista, aunque no sustituye una codificación humana independiente del score.",
             "",
             *build_method_depth_lines(review_dir, focus_rows, flow_counts, context),
             "",
@@ -9051,8 +10030,12 @@ def build_method_section_domain(
             "",
             f"En la Tabla 1 no hay contradicción entre cribado y recuperación: tras título/resumen quedaron {max(flow_counts.get('screened_title_abstract', 0) - flow_counts.get('excluded_title_abstract', 0), 0)} registros include/maybe. De ellos, {max(flow_counts.get('screened_title_abstract', 0) - flow_counts.get('excluded_title_abstract', 0) - flow_counts.get('full_text_sought', 0), 0)} no se trasladaron a recuperación por precheck documental, tipo de material, duplicidad funcional, falta de DOI utilizable o baja densidad metodológica antes de búsqueda de PDF; los {flow_counts.get('full_text_sought', 0)} restantes sí pasaron a recuperación de texto completo. De esos {flow_counts.get('full_text_sought', 0)}, {flow_counts.get('full_text_not_retrieved', 0)} no tuvieron PDF recuperable y {flow_counts.get('full_text_assessed', 0)} fueron evaluados a partir de PDF o texto completo extraído.",
             "",
-            "Tabla 2. Distribución de consultas registradas por fuente.",
-            markdown_table(["Fuente", "Consultas"], source_rows),
+            "Tabla 2. Ejecución y cobertura operativa de la búsqueda por fuente.",
+            markdown_table(["Fuente", "Eventos", "Resultados brutos", "Estado operacional"], source_rows),
+            "",
+            "Los resultados brutos de la Tabla 2 son respuestas acumuladas antes de deduplicación y pueden solaparse entre cadenas y fuentes. `—` no equivale a cero resultados: indica que la fuente no llegó a ejecutarse o que el log conserva una incidencia sin recuento recuperable. En particular, una única fila de Scopus, Web of Science, IEEE Xplore, Embase o Lens documenta su comprobación operacional y eventual omisión por acceso opcional, no una búsqueda equivalente a las APIs abiertas. Esta diferencia se conserva como límite de cobertura en lugar de presentar como ejecutada una fuente que no lo fue.",
+            "",
+            search_coverage_limit_sentence(source_rows),
             "",
             *search_strategy_summary_lines(review_dir, context),
             "Tabla 3. Reglas operativas de composición del subconjunto focal.",
@@ -9088,7 +10071,7 @@ def build_method_section_domain(
                 focal_context_rows,
             ),
             "",
-            "La Tabla 4C verifica que el recorte focal no se trate como una caja negra: compara el núcleo intensivo con los estudios incluidos que permanecen como contexto, mostrando perfil dominante, vacíos de reporte, score medio y fuentes. Si ambos grupos difieren, esa diferencia se interpreta como límite de transferencia de la síntesis focal y no como desaparición metodológica del corpus contextual.",
+            "La Tabla 4C verifica que el recorte focal no se trate como una caja negra: compara el núcleo intensivo con los estudios incluidos que permanecen como contexto, mostrando perfil dominante, vacíos de reporte, score medio y fuentes. Si ambos grupos difieren, esa diferencia se interpreta como límite de transferencia de la síntesis focal y no como desaparición metodológica del corpus contextual. En el perímetro contextual, un campo vacío significa que esa variable no fue recuperada en la matriz compacta de selección; no demuestra por sí solo que el paper original no la reporte ni que el estudio sea de menor calidad. El rasgo común de ese perímetro es una densidad comparativa o un score inferiores al umbral focal. Elevar uno de esos registros al mismo plano analítico exige lectura y extracción profunda adicionales, no una inferencia desde el vacío tabular.",
             "",
             "La puntuación base de la preselección focal se calculó mediante una regla ponderada explícita.",
             "",
@@ -9143,6 +10126,14 @@ def build_method_depth_lines(
         extraction_sentence = (
             "La extracción estructurada separó tarea docente, tipo de IA, rol del profesorado, contexto institucional, actividad educativa, instrumentos, comparadores, resultados de calidad, eficiencia, feedback, evaluación, diseño curricular, alfabetización en IA, integridad académica y límites. Cuando el paper solo reportaba intención de uso o percepción sin resultado pedagógico trazable, esa debilidad se conservó como dato metodológico."
         )
+    elif profile == "ai_security_harness":
+        unit_sentence = (
+            f"La unidad de análisis fue el contrato operacional de defensa reportado por cada estudio sobre {topic}: activo protegido, amenaza, capacidad del atacante, superficie, arquitectura de control, punto de aplicación, decisión autorizada o denegada, baseline, métrica de seguridad, utilidad, latencia, coste, robustez y fallo residual. "
+            "Esta decisión evita tratar como equivalentes un filtro de entrada, un monitor de trayectoria, una política de herramientas y un sandbox solo porque todos se presenten como guardrails."
+        )
+        extraction_sentence = (
+            "La extracción estructurada separó amenaza y superficie, control y punto de enforcement, atacante estático o adaptativo, corpus o entorno de evaluación, baseline, ASR o métrica defensiva equivalente, falsos positivos, utilidad, latencia, coste, transferencia, ablaciones, modos de fallo y disponibilidad de artefactos. Una cifra solo se codificó como resultado cuando el PDF permitía vincularla con el control y la evaluación observados; números de tablas, parámetros de diseño, coste del atacante o afirmaciones sin valor medido no se reutilizaron como rendimiento del harness."
+        )
     elif profile == "creativity_llm":
         unit_sentence = (
             f"La unidad de análisis fue la configuración tarea-criterio-evaluación reportada por cada estudio sobre {topic}: tarea creativa, definición de novedad o utilidad, modelo, condición de generación, juez, métrica, comparador, resultado, limitación y trazabilidad textual. "
@@ -9180,7 +10171,7 @@ def build_method_depth_lines(
         "",
         f"La síntesis se dividió en dos niveles: corpus incluido y síntesis focal. Los {included} estudios incluidos delimitan el perímetro de la revisión; los {len(focus_rows)} estudios focales sostienen la comparación intensiva. Esta separación evita dos errores frecuentes: presentar todo el corpus como si tuviera la misma densidad de evidencia o, al contrario, ocultar estudios válidos solo porque no entran en el N final.",
         "",
-        "La revisión no declara doble codificación humana independiente ni coeficiente kappa. Este punto debe leerse como límite metodológico explícito: la trazabilidad documental permite auditar decisiones de búsqueda, selección, extracción y evaluación crítica, pero no equivale a fiabilidad interjueces humana.",
+        *screening_reliability_method_lines(review_dir),
         "",
         "La reproducibilidad se sostiene en artefactos concretos: protocolo, estrategia de búsqueda, logs por fuente, índice DOI, duplicados, registros cribados, decisiones de texto completo, matriz de extracción, matriz de score, anexos tabulares, PDFs locales cuando la licencia lo permite y paquete editorial. El método queda así conectado a archivos verificables y no solo a una declaración de buenas intenciones.",
     ]
@@ -9257,14 +10248,52 @@ def build_results_section_domain(
             f"Las filas de la Tabla 7 cubren el subconjunto focal completo: {sum(parse_int(row[1], 0) for row in summary_rows)} de {len(focus_rows)} estudios. "
             f"La diferencia entre {len(focus_rows)} estudios focales y {empirical_focus_total} estudios empíricos se debe a que el subconjunto puede contener revisiones, trabajos teóricos o estudios metodológicos que aportan estructura conceptual pero no se clasifican como empíricos."
         )
-    if profile == "creativity_llm":
+    if profile == "ai_security_harness":
+        result_focus = "El patrón principal es que la eficacia defensiva no forma una jerarquía única: depende de amenaza, superficie, punto de aplicación, atacante, baseline y compensación entre seguridad, utilidad y coste."
+    elif profile == "creativity_llm":
         result_focus = "El patrón principal es la diversidad de tareas e instrumentos: la creatividad aparece como escritura, ideación, pensamiento divergente, originalidad, novedad o resolución creativa de problemas, con comparadores y métricas todavía heterogéneos."
     elif profile == "social_sciences":
         result_focus = "El patrón principal es la relación condicional entre constructos: exposición digital, polarización, confianza, información y contexto institucional no forman una causa única, sino una red de mecanismos y mediciones."
     else:
         result_focus = "El patrón principal es la heterogeneidad metodológica: el corpus combina diseños, unidades de análisis, métricas e instrumentos que obligan a distinguir mapa general y síntesis focal."
+    if profile == "ai_security_harness":
+        theme_figure_explanation = (
+            "La Figura 0 compara, en el panel izquierdo, la cobertura de amenazas y superficies y, en el "
+            "panel derecho, las familias de control. Las barras representan conteos multietiqueta, por lo "
+            "que un estudio puede contribuir a varias categorías. La concentración en prompt injection y "
+            "monitores de ejecución describe dónde existe más investigación, no qué control es más eficaz; "
+            "la categoría no tipificada hace visible la parte que todavía no admite ranking por mecanismo. "
+            "`Familias de control` nombra aquí el conjunto amplio de funciones del harness; `guardrail` se "
+            "reserva para controles de clasificación, filtrado o política y no se usa como sinónimo del sistema completo. "
+            + result_focus
+        )
+        matrix_figure_explanation = (
+            "La Figura 0 cruza amenazas en columnas y familias de control en filas. La intensidad y el número "
+            "de cada celda indican cuántos estudios focales evalúan ese cruce; una celda vacía significa "
+            "ausencia de evidencia recuperable, no eficacia nula. El mapa muestra dónde pueden buscarse "
+            "replicaciones comparables y dónde la literatura aún carece de cobertura entre superficie y control."
+        )
+    else:
+        theme_figure_explanation = (
+            "La Figura 0 organiza el campo por familias sustantivas para que la lectura no dependa solo de "
+            "frecuencias aisladas. " + result_focus
+        )
+        matrix_figure_explanation = (
+            "La Figura 0 cruza dimensiones del corpus y permite detectar qué combinaciones concentran "
+            "evidencia suficiente para sostener una comparación focal."
+        )
+    security_frontier_lines = (
+        security_frontier_result_lines(review_dir)
+        if profile == "ai_security_harness"
+        else []
+    )
     design_appraisal_lines: list[str] = []
-    if profile in {"social_sciences", "management", "education", "generic"}:
+    if profile == "ai_security_harness":
+        design_appraisal_lines = [
+            "La evaluación crítica se interpreta con una rúbrica específica de seguridad. Para cada estudio se comprueba si la amenaza está definida, si el atacante es estático o adaptativo, si existe baseline, si el corpus de ataques es reproducible, si se reporta eficacia defensiva, si se conserva utilidad, si se cuantifican falsos positivos, latencia o coste, y si se prueban ataques no vistos, transferencia entre modelos o modos de fallo. Esta adaptación impide que una reducción local de ASR se trate como evidencia suficiente de superioridad operacional.",
+            "",
+        ]
+    elif profile in {"social_sciences", "management", "education", "generic"}:
         design_appraisal_lines = [
             "La evaluación crítica se interpreta por familia de diseño y no como checklist único. La rúbrica se apoya en criterios de revisiones sistemáticas aplicadas (Kitchenham & Charters, 2007; Snyder, 2019), en la lógica de evaluación crítica de JBI/MMAT cuando procede y en dominios propios de management y ciencias sociales: claridad de constructo, unidad de análisis, medición, contexto, comparador, validez interna, transferencia y robustez. En experimentos o evaluaciones se revisan tratamiento, comparador, tamaño muestral, medición y posibilidad de inferencia causal; en encuestas, paneles o estudios organizativos se priorizan muestra, instrumento, contexto, dirección temporal y controles; en análisis de contenido o plataforma se revisan corpus, estrategia de muestreo, codificación y vínculo con resultados observables; en cualitativos se valoran caso, contexto, trazabilidad interpretativa y transferibilidad; y en revisiones o trabajos teóricos se registra función probatoria auxiliar, no efecto empírico. Esta adaptación se documenta en `paper/appendices/data/critical-appraisal-matrix.csv` y evita tratar estudios heterogéneos como si todos pudieran evaluarse con una herramienta clínica única.",
             "",
@@ -9312,7 +10341,7 @@ def build_results_section_domain(
         result_figure_number,
         "Panorama temático del corpus final.",
         "Panorama temático",
-        "La Figura 3 organiza el campo por familias sustantivas para que la lectura no dependa solo de frecuencias aisladas. " + result_focus,
+        theme_figure_explanation,
     )
     result_figure_blocks.extend(blocks)
     blocks, result_figure_number = render_numbered_body_figure(
@@ -9321,7 +10350,7 @@ def build_results_section_domain(
         result_figure_number,
         "Matriz entre temas, tareas, métodos y resultados observados.",
         "Matriz tema-método",
-        "La Figura 4 cruza dimensiones del corpus y permite detectar qué combinaciones concentran evidencia suficiente para sostener una comparación focal.",
+        matrix_figure_explanation,
     )
     result_figure_blocks.extend(blocks)
     blocks, result_figure_number = render_numbered_body_figure(
@@ -9331,6 +10360,24 @@ def build_results_section_domain(
         "Mapa de comparabilidad metodológica de los estudios empíricos.",
         "Mapa de comparabilidad metodológica",
         "La Figura 5 resume el nivel de comparabilidad metodológica del subconjunto focal: diseño, muestra, contexto, variables, comparador y validación.",
+    )
+    result_figure_blocks.extend(blocks)
+    blocks, result_figure_number = render_numbered_body_figure(
+        review_dir,
+        "fig-evidence-maturity",
+        result_figure_number,
+        "Madurez comparativa de la evidencia por estado y dominio de resultado.",
+        "Madurez comparativa de la evidencia",
+        "La Figura 0 separa alineación descriptiva, evidencia insuficiente y preguntas abiertas. Esta distinción evita presentar como consenso causal lo que todavía es repetición documental, heterogeneidad no resuelta o una comparación aislada.",
+    )
+    result_figure_blocks.extend(blocks)
+    blocks, result_figure_number = render_numbered_body_figure(
+        review_dir,
+        "fig-topic-network",
+        result_figure_number,
+        "Red temática del corpus y comunidades principales.",
+        "Red temática del corpus",
+        "La Figura 0 sitúa los temas dominantes dentro de una estructura relacional: identifica comunidades, conceptos puente y zonas periféricas que no pueden recuperarse mediante una lista plana de palabras clave.",
     )
     result_figure_blocks.extend(blocks)
     return "\n".join(
@@ -9346,6 +10393,7 @@ def build_results_section_domain(
                 top_ids,
             ),
             *result_figure_blocks,
+            *build_evidence_position_lines(review_dir),
             "Tabla 5. Distribución del corpus incluido por estado analítico.",
             markdown_table(["Estado analítico", "N"], analytic_status_rows or [["Sin datos", "0"]]),
             "",
@@ -9371,6 +10419,7 @@ def build_results_section_domain(
                 aggregate_rows,
             ),
             "",
+            *security_frontier_lines,
             *[line + "\n" for line in table7_8_note_lines],
             *build_results_authorial_stance_lines(focus_rows, context),
             *domain_substantive_synthesis_lines(profile, topic, focus_rows, top_ids),
@@ -9384,7 +10433,7 @@ def build_results_section_domain(
                 compact_bias_rows or [["Sin datos", "0", "0,0", "No evaluable"]],
             ),
             "",
-            f"La Tabla 9 resume el perfil agregado, pero la evaluación crítica no queda solo en un promedio ni replica mecánicamente la confianza de extracción. Para cada uno de los {len(focus_rows)} estudios focales se aplicó una rúbrica específica de esta revisión para valorar reporting, trazabilidad y cautela inferencial, basada en cinco señales auditables: tamaño muestral o corpus, contexto o país, marco teórico, comparador o línea base y validación/robustez recuperable desde el PDF. El score crítico se calcula como `0,55 × confianza de extracción + 0,45 × cobertura de señales aplicables`. La cobertura de señales aplicables se obtiene con los pesos de la Tabla 9A; cuando una dimensión no aplica por tipo de trabajo, no penaliza el denominador. Esta rúbrica no se presenta como sustituto universal de una herramienta validada de riesgo de sesgo; separa la calidad de reporte/extractabilidad de la certeza causal. Por eso los resultados empíricos se interpretan con cautela cuando faltan comparador, medición, contexto, validación externa o control de endogeneidad.",
+            f"La Tabla 9 resume el perfil agregado, pero la evaluación crítica no queda solo en un promedio ni replica mecánicamente la confianza de extracción. Para cada uno de los {len(focus_rows)} estudios focales se aplicó una rúbrica específica de esta revisión para valorar reporting, trazabilidad y cautela inferencial, basada en cinco señales auditables: tamaño muestral o corpus, contexto o país, marco teórico, comparador o línea base y validación/robustez recuperable desde el PDF. El score crítico se calcula como `0,55 × confianza de extracción + 0,45 × cobertura de señales aplicables`. La cobertura de señales aplicables se obtiene con los pesos de la Tabla 9A; cuando una dimensión no aplica por tipo de trabajo, no penaliza el denominador. Esta rúbrica no se presenta como sustituto universal de una herramienta validada de riesgo de sesgo; separa la calidad de reporte/extractabilidad de la certeza causal. Por eso los resultados empíricos se interpretan con cautela cuando faltan comparador, medición, contexto, validación externa o control de endogeneidad. Los conteos agregados y la codificación de cada estudio pueden recomputarse en `paper/appendices/data/critical-appraisal-matrix.csv`, donde se conservan DOI, señales reportadas, vacíos, dimensiones no aplicables y score.",
             "",
             *design_appraisal_lines,
             "Tabla 9A. Pesos de la evaluación crítica de reporting y trazabilidad.",
@@ -9493,6 +10542,71 @@ def build_discussion_section_domain(
         )
         evidence_implication = (
             "En términos sustantivos, la revisión sugiere una hipótesis de desplazamiento condicionado: la IA puede ahorrar ejecución en tareas delimitadas, pero no demuestra reducción neta si el trabajo reaparece como control, aprendizaje, coordinación o riesgo institucional."
+        )
+    elif profile == "ai_security_harness":
+        counts = security_harness_signal_counts(focus_rows)
+        family_counts = Counter(security_harness_evidence_family(row) for row in focus_rows)
+        family_text = counter_summary(family_counts, len(focus_rows), limit=6)
+        sparse_families = [
+            label for label, count in family_counts.items() if count == 1
+        ]
+        theoretical = (
+            "La seguridad de modelos generativos y sistemas agénticos debe entenderse como una propiedad del sistema completo y de su entorno de amenaza, no como una propiedad intrínseca del modelo ni como la mera presencia de un filtro."
+        )
+        discussion_development = [
+            (
+                f"El primer punto de discusión es que la evidencia focal se distribuye entre {family_text}. "
+                "Esta composición muestra que `harness de seguridad` designa controles distintos: algunos filtran lenguaje, otros aíslan contexto, restringen herramientas, monitorizan ejecución, verifican salidas o protegen secretos. "
+                f"Compararlos como una sola clase borraría qué superficie protege cada uno y qué daño puede seguir ocurriendo{cite_suffix(top_ids[:4])}."
+            ),
+            *(
+                [
+                    (
+                        f"Las familias sostenidas por un único estudio —{join_human_list(sparse_families)}— "
+                        "se conservan para no borrar una superficie emergente, pero no se usan para inferir "
+                        "madurez, eficacia típica ni prioridad de despliegue. Su función es señalar una "
+                        "hipótesis que requiere réplica, no añadir peso a una mayoría defensiva."
+                    )
+                ]
+                if sparse_families
+                else []
+            ),
+            (
+                f"El segundo punto es la comparabilidad. En {counts['threat']}/{len(focus_rows)} estudios se recupera una amenaza explícita, en {counts['enforcement']}/{len(focus_rows)} un punto de aplicación y en {counts['baseline']}/{len(focus_rows)} un baseline. "
+                "Cuando falta una de estas piezas, una cifra de eficacia pierde parte de su significado: no sabemos frente a qué atacante funciona, qué decisión controla ni si mejora una alternativa razonable. "
+                f"Por eso la revisión no construye un ranking universal; construye comparaciones condicionadas por contrato de amenaza{cite_suffix(top_ids[4:8])}."
+            ),
+            (
+                f"El tercer punto es la adaptatividad. {counts['adaptive']}/{len(focus_rows)} estudios reportan señal de atacante adaptativo y {counts['robustness']}/{len(focus_rows)} aportan robustez, transferencia, ablación o ataques no vistos. "
+                "La segunda cifra es deliberadamente más amplia y no implica que todos esos estudios enfrenten a un adversario adaptativo: también incluye transferencia entre modelos o dominios, ablaciones y conjuntos no vistos. "
+                "Una defensa evaluada sobre prompts estáticos puede aprender la forma del benchmark sin resistir a un adversario que conoce el filtro, reformula el ataque o desplaza la inyección a documentos, memoria o herramientas. "
+                f"La diferencia entre cobertura estática y robustez adaptativa es la frontera más importante entre demostración y seguridad operacional{cite_suffix(top_ids[8:12])}."
+            ),
+            (
+                f"El cuarto punto es el coste de proteger. Solo {counts['false_positive']}/{len(focus_rows)} estudios reportan falsos positivos, {counts['utility']}/{len(focus_rows)} utilidad, {counts['latency']}/{len(focus_rows)} latencia y {counts['cost']}/{len(focus_rows)} coste. "
+                "Una defensa puede reducir la tasa de ataque porque rechaza demasiadas entradas, limita herramientas legítimas o añade una revisión costosa. "
+                "La superioridad científica exige medir simultáneamente seguridad y capacidad útil; de lo contrario, el problema se resuelve desactivando parte del sistema que se pretendía proteger. "
+                "La baja cobertura de latencia y coste impide convertir las fronteras observadas en una recomendación de producción: sin cómputo adicional, tokens, tiempo de respuesta, intervención humana y coste de falsos rechazos no puede estimarse el coste total de operar la defensa. "
+                "La consecuencia es metodológica y empresarial: una frontera de dominancia sin esas métricas sigue siendo una hipótesis comparativa útil, pero no una decisión de despliegue cerrada."
+            ),
+            (
+                "El quinto punto es que las capas defensivas no son intercambiables. Un filtro de entrada puede detener patrones conocidos, pero no controla una llamada de herramienta ya autorizada; un sandbox limita impacto, pero no evita fuga de información en la respuesta; un verificador de salida puede detectar daño, pero llega tarde si el agente ya ejecutó una acción irreversible. "
+                "La arquitectura adecuada depende del momento en que el daño puede materializarse y del coste de una falsa aceptación frente a un falso rechazo."
+            ),
+            (
+                "La concentración de configuraciones en controles no tipificados no constituye una familia defensiva adicional ni una réplica implícita. Es un diagnóstico de inmadurez taxonómica: parte de la literatura usa etiquetas genéricas, combina mecanismos sin aislar su efecto o no describe con precisión qué transición del sistema interrumpe. Mientras esa opacidad persista, sumar esos estudios como si probaran el mismo control produciría una mayoría artificial y debilitaría, en lugar de fortalecer, la comparación."
+            ),
+            (
+                f"Finalmente, la madurez del campo depende de sus fallos visibles. {counts['failure']}/{len(focus_rows)} estudios reportan modos de fallo y {counts['artifact']}/{len(focus_rows)} código o artefactos recuperables. "
+                "Los resultados negativos, bypasses y límites de transferencia no debilitan una defensa; permiten delimitar dónde puede usarse. "
+                "Un harness científicamente útil no promete invulnerabilidad: ofrece una reducción de riesgo verificable, declara qué deja pasar y facilita repetir la prueba."
+            ),
+        ]
+        practical = (
+            "Para equipos que despliegan modelos y agentes, la implicación práctica es seleccionar controles desde el daño posible y el punto donde puede materializarse, no desde una lista genérica de guardrails."
+        )
+        evidence_implication = (
+            "En términos sustantivos, la revisión permite identificar configuraciones defensivas prometedoras, pero solo puede llamar mejor a una alternativa cuando comparte amenaza y baseline y conserva utilidad con coste y fallo residual explícitos."
         )
     elif profile == "creativity_llm":
         family_counts = Counter(creativity_evidence_family(row) for row in focus_rows)
@@ -9713,6 +10827,27 @@ def build_discussion_section_domain(
             "",
             "La sexta implicación es que la tesis del artículo no es tecnófoba ni promocional. Reconoce ganancias reales en tareas concretas, pero exige una contabilidad completa antes de aceptar la promesa de trabajar menos. La pregunta madura deja de ser `¿ahorra tiempo la IA?` y pasa a ser `¿qué trabajo desaparece, qué trabajo aparece y quién lo absorbe?`.",
         ]
+    elif profile == "ai_security_harness":
+        theoretical_implication_lines = [
+            "## Implicaciones teóricas",
+            "La primera implicación teórica derivada de los harnesses analizados es que su seguridad no puede localizarse únicamente en el modelo base. Dentro del alcance de este corpus, el comportamiento seguro emerge de una relación entre modelo, contexto, herramientas, memoria, permisos, verificadores y entorno de ejecución. Esta perspectiva no se presenta como una verdad ontológica sobre todo sistema de IA: es una inferencia arquitectónica apoyada por las defensas operacionales revisadas. La unidad teórica relevante deja de ser la respuesta aislada del modelo y pasa a ser el circuito que transforma información en una capacidad, una decisión y una consecuencia" + cite_suffix(top_ids[:4]) + ".",
+            "",
+            "La segunda implicación es que una defensa se define por el daño que interrumpe y por el momento en que lo hace. Filtrar una entrada, separar instrucciones de datos, negar una capacidad, aislar una ejecución y verificar una salida son mecanismos causalmente distintos. La teoría del campo debe explicar qué ruta de ataque corta cada control, no limitarse a contar cuántas capas existen. Esto introduce una gramática causal mínima: autoridad disponible, capacidad solicitada, transición permitida, evidencia usada para decidir y contención posterior al fallo.",
+            "",
+            "La tercera implicación es que detección y enforcement no son sustitutos. Un clasificador puede reconocer una intención dañina sin impedir que una herramienta actúe; una política de permisos puede contener la acción aunque no identifique semánticamente el ataque. La distinción permite ordenar dos tradiciones que a menudo se comparan de manera impropia: las defensas epistemológicas, que estiman si una entrada o trayectoria es peligrosa, y las defensas de autoridad, que limitan lo que el sistema puede hacer incluso cuando la estimación falla. En sistemas de alto impacto, ambas funciones son complementarias y su composición debe evaluarse como tal" + cite_suffix(top_ids[4:8]) + ".",
+            "",
+            "La cuarta implicación es que robustez y cobertura no son equivalentes. Cobertura describe rendimiento sobre un conjunto conocido; robustez exige mantener la reducción de riesgo cuando cambia el modelo, el dominio, la formulación o la estrategia del atacante. Esta distinción impide interpretar buenos resultados estáticos como seguridad general. Un atacante adaptativo no es solo una condición experimental más exigente: es una prueba epistemológica de si el mecanismo defensivo captura la ruta de daño o únicamente regularidades superficiales del benchmark.",
+            "",
+            "La quinta implicación es multiobjetivo: seguridad, utilidad, disponibilidad, latencia, coste y operabilidad forman una frontera de decisión. No existe una defensa universalmente mejor cuando una alternativa bloquea más ataques pero degrada de forma material el uso legítimo o desplaza el coste hacia revisión humana. Teóricamente, la dominancia entre harnesses es un orden parcial: una configuración solo puede dominar a otra dentro de un contrato equivalente y cuando no empeora de forma sustantiva las dimensiones operacionales relevantes. Fuera de esas condiciones, una media única destruye información de decisión.",
+            "",
+            "La sexta implicación es que el fallo residual forma parte de la teoría de la defensa. Un harness maduro no se define por prometer bloqueo total, sino por delimitar qué ataques reduce, cuáles siguen siendo posibles, cómo se detecta el fallo y qué mecanismo contiene el daño después de una evasión. Esta lectura desplaza la seguridad desde la fantasía de invulnerabilidad hacia una teoría de reducción, observabilidad y contención del riesgo. Publicar bypasses, falsos negativos y condiciones de degradación no debilita la contribución; revela su frontera de validez" + cite_suffix(top_ids[8:12]) + ".",
+            "",
+            "La séptima implicación afecta a la composición de capas. Añadir controles no garantiza una mejora monótona: dos filtros pueden compartir el mismo punto ciego, una verificación tardía puede no reparar una acción irreversible y una política restrictiva puede trasladar el riesgo a operadores humanos que aprueban excepciones bajo presión. La teoría debe estudiar independencia de fallos, orden de ejecución y capacidad de recuperación, no solo número de componentes. Una defensa multicapa aporta valor cuando cada capa cubre un modo de fallo distinto y la interacción entre ellas conserva una ruta de decisión interpretable.",
+            "",
+            "La octava implicación es acumulativa. El campo solo podrá comparar resultados si comparte una gramática mínima: amenaza, atacante, superficie, control, enforcement, baseline, eficacia, utilidad, coste y robustez. Esa gramática permite integrar estudios heterogéneos sin convertirlos en un ranking engañoso. También convierte los vacíos de reporte en información teórica: si no se declara quién ataca, qué autoridad posee el sistema o qué daño se contiene, la afirmación de seguridad carece de objeto estable.",
+            "",
+            "La novena implicación es una regla de diseño científico. Los estudios futuros deberían formular la defensa como una hipótesis refutable sobre una transición concreta del sistema: bajo una amenaza definida, el control impide o contiene una acción sin superar un coste operacional preestablecido. Esa formulación obliga a declarar qué resultado refutaría la propuesta y permite que una réplica modifique modelo, dominio o atacante sin perder la unidad comparativa. La teoría de los harnesses avanzará cuando pueda explicar no solo que una defensa funcionó, sino por qué funcionó, dónde deja de hacerlo y qué evidencia permitiría sustituirla" + cite_suffix(top_ids[12:16]) + ".",
+        ]
     else:
         theoretical_implication_lines = [
             "## Implicaciones teóricas",
@@ -9804,6 +10939,24 @@ def build_conclusions_section_domain(
             "Lo que puede afirmarse con más seguridad es que existen ganancias locales cuando la tarea está bien delimitada, el criterio de calidad es claro y el coste de revisar la salida no supera el ahorro de producirla. "
             "Lo que aparece como señal emergente es un desplazamiento del esfuerzo desde producir hacia controlar: formular mejor, verificar más, corregir fallos, coordinar usos y sostener la responsabilidad sobre decisiones asistidas por IA. "
             "Lo que todavía no puede concluirse es una reducción neta general de carga de trabajo, porque esa afirmación exige medir también el trabajo invisible que muchos estudios dejan fuera: relectura, validación, rework, formación, dependencia, auditoría y gestión del riesgo."
+        )
+    elif profile == "ai_security_harness":
+        counts = security_harness_signal_counts(focus_rows)
+        family_counts = Counter(security_harness_evidence_family(row) for row in focus_rows)
+        family_text = counter_summary(family_counts, len(focus_rows), limit=6)
+        answer = (
+            "no existe evidencia suficiente para declarar un harness universalmente mejor. La evidencia permite identificar defensas superiores dentro de comparaciones concretas, pero la superioridad depende de compartir amenaza, atacante, superficie, baseline y criterio de coste, y de demostrar que la reducción del riesgo no se obtiene degradando de forma material la utilidad."
+        )
+        domain_conclusion = (
+            "La distribución observada desplaza la decisión desde el nombre de una defensa hacia la superficie "
+            "que protege y el daño que contiene. La cobertura desigual de baseline, atacante adaptativo y coste "
+            "permite priorizar arquitecturas para una amenaza concreta, pero impide convertir resultados locales "
+            "en una liga única de harnesses."
+        )
+        certainty_signal_gap = (
+            "Lo que puede afirmarse con más seguridad es que el harness debe cubrir las fronteras donde datos no confiables pueden convertirse en instrucciones, permisos, llamadas de herramienta o salidas con efecto. Ninguna familia aislada cubre por definición entrada, contexto, memoria, herramientas, runtime y salida; esta es una conclusión arquitectónica, no una afirmación de superioridad empírica entre controles. "
+            "Lo que aparece como señal emergente es una transición desde guardrails monolíticos hacia defensa en profundidad, pero el corpus todavía no demuestra qué combinación es mejor bajo comparaciones homogéneas. "
+            f"Lo que todavía no puede concluirse es qué combinación domina de forma general: solo {counts['false_positive']}/{len(focus_rows)} estudios reportan falsos positivos, {counts['utility']}/{len(focus_rows)} utilidad, {counts['latency']}/{len(focus_rows)} latencia y {counts['cost']}/{len(focus_rows)} coste."
         )
     elif profile == "creativity_llm":
         family_counts = Counter(creativity_evidence_family(row) for row in focus_rows)
@@ -9926,6 +11079,17 @@ def build_conclusions_section_domain(
             "Como aportación final, el artículo propone una contabilidad de trabajo total para estudiar IA en organizaciones, educación, ciencia y conocimiento profesional. "
             "La contribución no es repetir que algunos estudios reportan productividad y otros reportan riesgos; es ordenar esa tensión en una regla evaluable: una adopción solo reduce trabajo si la suma de ejecución, articulación, verificación, coordinación, aprendizaje y responsabilidad disminuye sin degradar calidad, trazabilidad ni seguridad. "
             "Esa regla convierte una discusión promocional en una pregunta científica acumulativa " + citation_block(top_ids[8:12]) + "."
+        )
+    elif profile == "ai_security_harness":
+        composition_sentence = (
+            f"El corpus final incluido contiene {flow_counts.get('included_in_review', len(focus_rows))} estudios y la síntesis focal compara {len(focus_rows)} configuraciones defensivas con texto completo. "
+            f"{empirical_n} estudios son empíricos según la extracción. La conclusión se apoya en esa base comparativa y usa los trabajos teóricos o metodológicos para interpretar mecanismos, no para inflar la evidencia de eficacia."
+        )
+        final_contribution_sentence = (
+            "Como aportación final, el artículo propone una frontera de dominancia defensiva para evaluar harnesses de seguridad. "
+            "Una alternativa domina solo cuando, bajo la misma amenaza y baseline, reduce más riesgo sin empeorar materialmente utilidad, falsos positivos, latencia o coste; si las métricas se compensan, la decisión debe declarar el contexto y la prioridad de riesgo. "
+            "Esta frontera es una regla teórica derivada del diagnóstico del corpus, no una jerarquía empírica ya validada entre todos los harnesses. Su función es especificar qué evidencia futura permitiría demostrar dominancia y qué comparaciones deben seguir siendo contextuales. "
+            "La regla permite transformar resultados fragmentarios de jailbreak, prompt injection, herramientas y exfiltración en decisiones comparables sin fingir una clasificación universal " + citation_block(top_ids[8:12]) + "."
         )
     else:
         composition_sentence = (
@@ -10635,6 +11799,24 @@ def build_results_section(
         f"La Figura 5 refuerza que la comparación depende de algo más que el diseño declarado: muestra, contexto, marco, variables, comparador y validación determinan cuánta inferencia puede sostener cada estudio. En esta revisión, los conteos metodológicos detallados se refieren al subconjunto focal de {len(focus_rows)} estudios, mientras que la cartografía amplia del campo descansa sobre los {len(corpus_rows)} estudios del corpus incluido.",
     )
     result_figure_blocks.extend(blocks)
+    blocks, result_figure_number = render_numbered_body_figure(
+        review_dir,
+        "fig-evidence-maturity",
+        result_figure_number,
+        "Madurez comparativa de la evidencia por estado y dominio de resultado.",
+        "Madurez comparativa de la evidencia",
+        "La Figura 0 distingue las comparaciones que permiten una alineación descriptiva de aquellas que aún descansan en evidencia insuficiente o preguntas abiertas; repetición no equivale automáticamente a causalidad ni a generalización.",
+    )
+    result_figure_blocks.extend(blocks)
+    blocks, result_figure_number = render_numbered_body_figure(
+        review_dir,
+        "fig-topic-network",
+        result_figure_number,
+        "Red temática del corpus y comunidades principales.",
+        "Red temática del corpus",
+        "La Figura 0 muestra qué temas forman comunidades estables, cuáles actúan como puentes y qué conceptos permanecen periféricos. Su lectura complementa las frecuencias al preservar relaciones entre palabras clave.",
+    )
+    result_figure_blocks.extend(blocks)
     return "\n".join(
         [
             "# Resultados",
@@ -10646,6 +11828,7 @@ def build_results_section(
             "",
             *result_figure_blocks,
             *autopilot_results_figures,
+            *build_evidence_position_lines(review_dir),
             "Tabla 5. Distribución del corpus incluido por tipo de trabajo.",
             markdown_table(["Tipo de trabajo", "N"], work_rows),
             "",
@@ -11273,6 +12456,7 @@ def build_method_section_personality(
 
 
 def build_results_section_personality(
+    review_dir: pathlib.Path,
     all_review_rows: list[dict[str, str]],
     focus_rows: list[dict[str, str]],
 ) -> str:
@@ -11311,6 +12495,7 @@ def build_results_section_personality(
             figure_markdown("../../figures/png/fig-method-profile.png", "Figura 5. Mapa de comparabilidad metodológica"),
             "La Figura 5 refuerza que el perfil empírico solo es interpretable cuando se observan también muestra, contexto, marco teórico, variables, comparador y validación. La lectura conjunta de las Figuras 3-5 sugiere, por tanto, una asimetría clara: el campo está mejor preparado para demostrar que puede inducir o medir personalidad que para demostrar con la misma precisión sus efectos downstream de forma comparable.",
             "",
+            *build_evidence_position_lines(review_dir),
             f"Tabla 5. Distribución del corpus incluido (n={len(corpus_rows)}) por tipo de trabajo.",
             markdown_table(["Tipo de trabajo", "N"], work_rows),
             "",
@@ -11542,7 +12727,7 @@ def hydrate_publication_sections(review_dir: pathlib.Path, corpus: dict[str, Cor
             "02-introduction.md": build_introduction_section_personality(focus_rows, context),
             "03-theoretical-framework.md": build_theoretical_framework_section_personality(focus_rows, context),
             "04-method.md": build_method_section_personality(review_dir, focus_rows, all_shortlist_rows, flow_counts, context),
-            "05-results.md": build_results_section_personality(all_review_rows, focus_rows),
+            "05-results.md": build_results_section_personality(review_dir, all_review_rows, focus_rows),
             "06-discussion.md": build_discussion_section_personality(review_dir, focus_rows, flow_counts, context),
             "07-conclusions.md": build_conclusions_section_personality(focus_rows, flow_counts, context),
             "10-editorial-statements.md": build_editorial_statements_section(context),
@@ -11809,11 +12994,50 @@ def fetch_csl_json(doi: str, cache_dir: pathlib.Path) -> dict:
             "User-Agent": "HermesPublicationAudit/1.0",
         },
     )
-    with request.urlopen(req, timeout=30) as response:
+    timeout_seconds = max(
+        5,
+        min(60, int(os.environ.get("HERMES_CSL_TIMEOUT_SECONDS", "15") or "15")),
+    )
+    with request.urlopen(req, timeout=timeout_seconds) as response:
         payload = json.load(response)
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
+
+
+def fetch_csl_batch(
+    records: list[tuple[str, str]],
+    cache_dir: pathlib.Path,
+    max_workers: int = 16,
+) -> tuple[dict[str, dict], dict[str, Exception]]:
+    """Resolve DOI metadata concurrently while keeping deterministic consumers.
+
+    DOI content negotiation can be slow or unavailable for individual
+    publishers. A bounded worker pool prevents one unresponsive DOI from
+    serialising a complete bibliography build. Results and failures remain
+    keyed by record ID so the caller can report issues in manuscript order.
+    """
+    results: dict[str, dict] = {}
+    failures: dict[str, Exception] = {}
+    if not records:
+        return results, failures
+
+    configured_workers = int(
+        os.environ.get("HERMES_CSL_MAX_WORKERS", str(max_workers)) or str(max_workers)
+    )
+    worker_count = max(1, min(configured_workers, 32, len(records)))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(fetch_csl_json, doi, cache_dir): record_id
+            for record_id, doi in records
+        }
+        for future in as_completed(futures):
+            record_id = futures[future]
+            try:
+                results[record_id] = future.result()
+            except Exception as exc:  # noqa: BLE001
+                failures[record_id] = exc
+    return results, failures
 
 
 def format_apa_names_from_csl(authors: list[dict]) -> str:
@@ -11901,16 +13125,21 @@ def build_apa_reference(record: CorpusRecord, csl_meta: dict | None) -> tuple[st
         citation_url = citation_url_for_record(record, csl_meta)
         entry_type = csl_value(csl_meta, "type")
         citation_arxiv_url = canonical_arxiv_url(citation_url)
+        preprint_repository = preprint_repository_label(record, csl_meta, citation_url)
         standalone_repository = looks_like_repository_work(record, citation_url, container, publisher)
         standalone_entry = entry_type in {"posted-content", "report", "dissertation", "thesis"} or standalone_repository
-        title_part = italic(title) if standalone_entry else title
+        if preprint_repository:
+            title_part = f"{italic(title)} [Preprint]"
+        else:
+            title_part = italic(title) if standalone_entry else title
         descriptor = repository_work_descriptor(record, citation_url, container, publisher) if standalone_repository else ""
         if authors == "Autor no resuelto":
             parts = [f"{title_part}{descriptor}. ({year})."]
         else:
-            parts = [f"{authors} ({year}). {title_part}{descriptor}."]
-        if citation_arxiv_url:
-            parts.append(arxiv_preprint_label(citation_arxiv_url) + ".")
+            authors_with_period = authors if authors.endswith(".") else f"{authors}."
+            parts = [f"{authors_with_period} ({year}). {title_part}{descriptor}."]
+        if preprint_repository:
+            parts.append(preprint_repository + ".")
         elif entry_type in {"article-journal", "journal-article"}:
             journal = container or publisher or "Contenedor no resuelto"
             journal_part = italic(journal)
@@ -11960,6 +13189,7 @@ def build_apa_reference(record: CorpusRecord, csl_meta: dict | None) -> tuple[st
     host = ""
     arxiv_url = canonical_arxiv_url(record.notes or citation_url or record.assigned_doi)
     if arxiv_url:
+        title = f"{italic(title)} [Preprint]"
         host = f" {arxiv_preprint_label(arxiv_url)}."
     elif looks_like_repository_work(record, citation_url):
         title = italic(title) + repository_work_descriptor(record, citation_url)
@@ -11967,7 +13197,8 @@ def build_apa_reference(record: CorpusRecord, csl_meta: dict | None) -> tuple[st
         reference = f"{title}. ({year}).{host}"
         short_cite = title_based_citation(title, year)
     else:
-        reference = f"{authors} ({year}). {title}.{host}"
+        authors_with_period = authors if authors.endswith(".") else f"{authors}."
+        reference = f"{authors_with_period} ({year}). {title}.{host}"
         short_cite = format_short_citation_from_plain(record.authors, year)
     if citation_url:
         reference += f" {citation_url}"
@@ -11988,26 +13219,70 @@ def author_families_for_record(record: CorpusRecord, csl_meta: dict | None) -> l
     return [author_family(author) for author in split_authors(record.authors) if author_family(author)]
 
 
+def first_author_initial_for_record(record: CorpusRecord, csl_meta: dict | None) -> str:
+    """Return the first author's initials for same-surname citation disambiguation."""
+    if csl_meta:
+        authors = csl_meta.get("author") or []
+        if authors:
+            _family, given, literal = resolve_csl_name(authors[0])
+            initials = initials_from_given(given)
+            if initials:
+                return initials
+            if literal:
+                return author_initials(literal)
+    authors = split_authors(record.authors)
+    return author_initials(authors[0]) if authors else ""
+
+
+def author_identity_signature(
+    record: CorpusRecord,
+    csl_meta: dict | None,
+) -> tuple[tuple[str, str], ...]:
+    """Identify authors by family name and initials before assigning year suffixes."""
+    identities: list[tuple[str, str]] = []
+    if csl_meta:
+        for author in csl_meta.get("author") or []:
+            family, given, literal = resolve_csl_name(author)
+            if not family and literal:
+                family = author_family(literal)
+            initials = initials_from_given(given) or (author_initials(literal) if literal else "")
+            if family:
+                identities.append((family.casefold(), initials.casefold()))
+    if identities:
+        return tuple(identities)
+    return tuple(
+        (author_family(author).casefold(), author_initials(author).casefold())
+        for author in split_authors(record.authors)
+        if author_family(author)
+    )
+
+
 def apply_year_suffix(reference: str, year: str, suffix: str) -> str:
     if not suffix or not year:
         return reference
     return re.sub(rf"\({re.escape(year)}\)", f"({year}{suffix})", reference, count=1)
 
 
-def build_disambiguated_citation(families: list[str], year: str, depth: int) -> str:
+def build_disambiguated_citation(
+    families: list[str],
+    year: str,
+    depth: int,
+    first_author_initial: str = "",
+) -> str:
     if not families:
         return f"(Autor no resuelto, {year or 's. f.'})"
+    first_author = f"{first_author_initial} {families[0]}".strip()
     if len(families) == 1:
-        return f"({families[0]}, {year})"
+        return f"({first_author}, {year})"
     if len(families) == 2:
-        return f"({families[0]} & {families[1]}, {year})"
+        return f"({first_author} & {families[1]}, {year})"
     if depth <= 1:
-        return f"({families[0]} et al., {year})"
+        return f"({first_author} et al., {year})"
     if len(families) == 3:
-        return f"({families[0]}, {families[1]}, & {families[2]}, {year})"
+        return f"({first_author}, {families[1]}, & {families[2]}, {year})"
     if depth == 2:
-        return f"({families[0]}, {families[1]}, et al., {year})"
-    return f"({families[0]}, {families[1]}, {families[2]}, et al., {year})"
+        return f"({first_author}, {families[1]}, et al., {year})"
+    return f"({first_author}, {families[1]}, {families[2]}, et al., {year})"
 
 
 def disambiguate_short_citations(
@@ -12026,14 +13301,16 @@ def disambiguate_short_citations(
         year = year_from_csl(meta, record.year) if meta else (record.year or "s. f.")
         metadata[record_id] = {
             "families": author_families_for_record(record, meta),
+            "author_identity": author_identity_signature(record, meta),
+            "first_author_initial": first_author_initial_for_record(record, meta),
             "year": year,
             "title": sanitize_title(record.title).lower(),
         }
 
     year_suffixes: dict[str, str] = {}
-    exact_groups: dict[tuple[tuple[str, ...], str], list[str]] = {}
+    exact_groups: dict[tuple[tuple[tuple[str, str], ...], str], list[str]] = {}
     for record_id, payload in metadata.items():
-        key = (tuple(payload["families"]), str(payload["year"]))
+        key = (tuple(payload["author_identity"]), str(payload["year"]))
         exact_groups.setdefault(key, []).append(record_id)
     for record_ids in exact_groups.values():
         if len(record_ids) <= 1:
@@ -12059,6 +13336,26 @@ def disambiguate_short_citations(
     for cite, record_ids in grouped.items():
         record_ids = [record_id for record_id in record_ids if record_id in relevant_ids]
         if len(record_ids) <= 1:
+            continue
+        initial_trial: dict[str, list[str]] = {}
+        for record_id in record_ids:
+            payload = metadata[record_id]
+            year = str(payload["year"]) + year_suffixes.get(record_id, "")
+            families = list(payload["families"])
+            expanded = (
+                build_disambiguated_citation(
+                    families,
+                    year,
+                    1,
+                    str(payload["first_author_initial"]),
+                )
+                if families
+                else title_based_citation(corpus[record_id].title, year)
+            )
+            initial_trial.setdefault(expanded, []).append(record_id)
+        if all(len(items) == 1 for items in initial_trial.values()):
+            for expanded, items in initial_trial.items():
+                short_citations[items[0]] = expanded
             continue
         for depth in (2, 3):
             trial: dict[str, list[str]] = {}
@@ -12526,6 +13823,7 @@ def main() -> int:
         raise SystemExit(f"Review directory does not exist: {review_dir}")
 
     ensure_publication_scaffold(review_dir)
+    apply_source_verified_identity_corrections(review_dir)
     enforce_publication_doi_flow(review_dir)
     paper_dir = review_dir / "paper"
     section_dir = paper_dir / "sections"
@@ -12581,14 +13879,20 @@ def main() -> int:
     )
     reference_scope_ids = set(reference_scope_order)
 
+    csl_records = [
+        (record_id, record.assigned_doi)
+        for record_id in reference_scope_order
+        if (record := corpus.get(record_id)) and record.assigned_doi
+    ]
+    resolved_csl, csl_failures = fetch_csl_batch(csl_records, cache_dir)
+
     for record_id in reference_scope_order:
         record = corpus.get(record_id)
         if not record or not record.assigned_doi:
             continue
-        meta = None
-        try:
-            meta = fetch_csl_json(record.assigned_doi, cache_dir)
-        except Exception as exc:  # noqa: BLE001
+        meta = resolved_csl.get(record_id)
+        exc = csl_failures.get(record_id)
+        if exc is not None:
             fallback_url = citation_url_for_record(record)
             if not ("404" in str(exc) and canonical_arxiv_url(fallback_url)):
                 issues.append(

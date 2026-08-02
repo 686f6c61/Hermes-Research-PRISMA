@@ -59,7 +59,9 @@ def test_configured_model_roles_preserve_scientific_function(monkeypatch):
     }
 
 
-def test_reasoning_models_receive_a_safe_final_answer_budget():
+def test_reasoning_models_receive_a_safe_final_answer_budget(monkeypatch):
+    monkeypatch.delenv("HERMES_REASONING_EFFORT", raising=False)
+
     assert cloud_inference.adaptive_max_tokens("deepseek-v4-flash", 128) >= 1024
     assert cloud_inference.adaptive_max_tokens("plain-text-model", 128) == 256
 

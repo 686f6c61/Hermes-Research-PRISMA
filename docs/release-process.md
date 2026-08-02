@@ -29,7 +29,7 @@ La cadena:
 
 Para la versión `X.Y.Z` se generan:
 
-- `dist/hermes-research-pack-vX.Y.Z-YYYYMMDD-HHMMSS.zip`
+- `dist/hermes-research-pack-vX.Y.Z.zip`
 - el checksum `.zip.sha256`;
 - `dist/security/hermes-research-pack-vX.Y.Z.cdx.json`;
 - el informe de vulnerabilidades corregibles;
@@ -52,9 +52,11 @@ Para la versión `X.Y.Z` se generan:
 El workflow también puede lanzarse manualmente sobre un tag existente. No
 publica desde una rama ni acepta un tag cuya versión difiera de `VERSION`.
 
-No subas `.env`, logs, capturas, tokens, rutas locales ni carpetas
-`runtime/`. No conviertas el repositorio en público hasta que el escaneo del
-árbol y del ZIP haya pasado.
+No subas `.env`, logs, capturas, tokens, claves privadas, bases locales, rutas
+absolutas, corpus, PDFs de trabajo, carpetas `runtime/` ni paquetes generados.
+Comprueba `.gitignore`, los archivos ya rastreados y el contenido real del ZIP:
+ignorar un archivo no lo elimina si ya estaba versionado. No conviertas el
+repositorio en público hasta que el escaneo del árbol y del ZIP haya pasado.
 
 Sin `REQUIRE_CLEAN_RELEASE=1` puede generarse un candidato local para pruebas.
 Su manifiesto marcará `source_tree_dirty: true`; ese artefacto no debe

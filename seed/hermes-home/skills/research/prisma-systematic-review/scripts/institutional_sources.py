@@ -108,7 +108,10 @@ def normalize_doi(value: Any) -> str:
             break
     doi = doi.strip().lower()
     match = re.search(r"10\.\d{4,9}/\S+", doi)
-    return match.group(0).rstrip(".,;)]}") if match else ""
+    if not match:
+        return ""
+    normalized = match.group(0).rstrip(".,;)]}")
+    return re.sub(r"^(10\.48550/arxiv\..+?)v\d+$", r"\1", normalized)
 
 
 def safe_error_note(exc: Exception) -> str:

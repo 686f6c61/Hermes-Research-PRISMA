@@ -30,6 +30,31 @@ de seguridad; la integración funcional con Hermes es `plugin-only`. El
 inventario técnico está en
 [MIGRATION-MANIFEST.md](seed/hermes-home/plugins/hermes_research/MIGRATION-MANIFEST.md).
 
+## Qué incorpora 0.6.0
+
+- Una capa de inteligencia científica que separa convergencia, desacuerdo,
+  resultados nulos, patrones condicionados y preguntas abiertas sin alterar la
+  elegibilidad de ningún estudio.
+- Una cola de lectura basada en relevancia, transparencia metodológica,
+  disponibilidad de evidencia, reproducibilidad y capacidad de contraste. Las
+  citas y la centralidad tienen peso cero.
+- Un portfolio visual con galería offline, PNG de 2400 px, SVG editable y un
+  gate que propone hasta cuatro figuras no redundantes por defecto. El perfil
+  de seguridad puede admitir cinco cuando sostienen partes distintas del
+  argumento científico.
+- Linaje SHA-256, memoria privada entre revisiones sin heredar decisiones y una
+  auditoría artículo-código opcional que no clona ni ejecuta software ajeno.
+- Una prueba multimodal sobre un PDF científico real: renderiza su primera
+  página, pide al modelo visual recuperar el título y conserva el resultado
+  verificable sin exponer la credencial del proveedor.
+- Un subperfil técnico para harnesses de seguridad que compara amenaza, control,
+  punto de enforcement, baseline, adaptación del atacante, eficacia, falsos
+  positivos, utilidad, latencia, coste, robustez y fallos sin fabricar un
+  ganador universal. La frontera separa resultados cuantificados, señales
+  cualitativas y simples menciones de métricas.
+
+[![Inteligencia científica: posiciones de evidencia, prioridad de lectura, memoria privada y auditoría de código](docs/images/scientific-intelligence.png)](https://hermes-prisma.686f6c61.dev/#inteligencia)
+
 ## Qué obtiene una persona
 
 - Inicio guiado desde CLI o Telegram.
@@ -39,13 +64,20 @@ inventario técnico está en
 - Lectura de PDF con Poppler y extracción estructurada opcional con Docling.
 - Matriz de evidencia, tablas, figuras y fichas por estudio.
 - Atlas HTML offline de autores, temas, referencias y evidencia, con centralidad, comunidades, cobertura y deriva entre fases.
+- Matriz de posiciones que separa convergencias, desacuerdos, resultados nulos, patrones condicionados y preguntas abiertas.
+- Matrices especializadas cuando el tema lo exige; en seguridad de IA incluyen
+  comparación harness-amenaza y frontera de dominancia condicional.
+- Prioridad de lectura independiente de la elegibilidad, sin premiar citas, centralidad ni autoridad del autor.
+- Auditoría artículo-código opcional y de solo lectura, sin clonar ni ejecutar repositorios ajenos.
+- Linaje SHA-256 entre entradas y entregables y memoria privada reutilizable entre revisiones sin heredar decisiones.
 - Manuscrito Markdown, LaTeX editable y PDF.
 - Revisión independiente, auditoría de integridad y gate de publicación.
 - Guía HTML offline que explica los doce bloques de la entrega y enlaza cada
   archivo desde un punto de entrada útil.
 - Manifiesto JSON con estado, tamaño y SHA-256 de cada entregable público.
 - Ledger que conecta afirmaciones críticas, citas, DOI, fragmentos y páginas.
-- Procedencia de modelos por función y prueba explícita de sus capacidades.
+- Procedencia de modelos por función y prueba explícita de sus capacidades,
+  incluida la lectura de una página científica real.
 - Estado recuperable, watchdog autónomo y sincronización local con Obsidian.
 
 [![Entregables de Hermes Research Pack: PDF, LaTeX, Markdown, CSV, figuras, auditoría y ZIP](docs/images/deliverables.png)](https://hermes-prisma.686f6c61.dev/entregables.html)
@@ -164,7 +196,24 @@ En Telegram, la superficie pública es `/start`, `/nueva_revision`, `/estado`,
 El análisis estructural conecta autores, temas, referencias y dimensiones sin
 intervenir en la selección. Después, el empaquetado abre con `index.html`,
 recalcula hashes, elimina rutas e identificadores internos y conserva un estado
-que el watchdog puede reanudar sin repetir fases estables.
+que el watchdog puede reanudar sin repetir fases estables. Si el atlas falta o
+ha quedado desactualizado respecto del corpus, `package` lo reconstruye antes
+de crear el ZIP.
+
+Tras la extracción, la capa de inteligencia científica compara qué sostiene
+cada estudio, dónde converge el corpus, dónde hay desacuerdo real y qué
+preguntas siguen abiertas. Una cola separada ordena la lectura por valor
+probatorio y capacidad de contraste, nunca por popularidad bibliométrica. Si
+los artículos declaran repositorios, una auditoría opcional puede comprobar
+señales documentales de reproducibilidad sin descargar ni ejecutar código.
+
+La entrega visual no es un volcado de gráficos. Un ranking científico propone
+hasta cuatro figuras para el cuerpo por defecto; el subperfil de seguridad
+admite cinco cuando cubren amenazas, controles, comparabilidad, madurez y
+contribución sin redundancia. El resto queda como suplemento o reserva.
+`figures/gallery.html` permite revisar y descargar cada PNG de alta
+resolución y su SVG editable; el atlas offline añade redes, centralidad,
+comunidades y exportación GraphML/GEXF para Gephi.
 
 Cuando los dos juicios de elegibilidad a texto completo discrepan, la revisión
 no rechaza automáticamente el estudio ni termina como fallida. Conserva todo el
@@ -266,7 +315,7 @@ revisión reproducible, cita la versión exacta y conserva también el
 
 ## Compatibilidad y licencia
 
-La versión `0.5.1` está fijada a Hermes Agent `v2026.7.20`, commit
+La versión `0.6.0` está fijada a Hermes Agent `v2026.7.20`, commit
 `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. No se recomienda mezclar el
 plugin con otra versión de Hermes sin ejecutar la matriz completa de pruebas.
 

@@ -25,6 +25,7 @@ def test_public_pages_have_unique_metadata_and_valid_structured_data() -> None:
     pages = [
         _read("index.html"),
         _read("instalacion.html"),
+        _read("descarga.html"),
         _read("metodologia.html"),
         _read("entregables.html"),
         _read("atlas-estructural.html"),
@@ -53,6 +54,28 @@ def test_public_pages_have_unique_metadata_and_valid_structured_data() -> None:
     assert len(canonicals) == len(pages)
 
 
+def test_public_pages_use_private_privacy_respecting_analytics() -> None:
+    for name in (
+        "index.html",
+        "instalacion.html",
+        "descarga.html",
+        "metodologia.html",
+        "entregables.html",
+        "atlas-estructural.html",
+        "confianza.html",
+        "faq.html",
+    ):
+        page = _read(name)
+        assert 'src="https://analytics.686f6c61.dev/script.js"' in page
+        assert 'data-website-id="1e30d667-8796-4962-bb00-2e7126352134"' in page
+        assert (
+            'data-domains="hermes-prisma.686f6c61.dev,'
+            'www.hermes-prisma.686f6c61.dev"'
+        ) in page
+        assert 'data-do-not-track="true"' in page
+        assert 'data-exclude-search="true"' in page
+
+
 def test_landing_links_to_the_installation_guide() -> None:
     page = _read("index.html")
     assert 'href="/instalacion.html"' in page
@@ -60,21 +83,29 @@ def test_landing_links_to_the_installation_guide() -> None:
     assert 'href="/entregables.html"' in page
     assert 'href="/confianza.html"' in page
     assert 'href="/faq.html"' in page
-    assert ">Bajar de GitHub</a>" in page
+    assert 'href="/descarga.html"' in page
+    assert ">Descargar paquete</a>" in page
 
 
-def test_public_pages_link_to_the_versioned_public_release() -> None:
-    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.5.1"
-    assert release_url in _read("index.html")
-    assert release_url in _read("instalacion.html")
-    assert release_url in _read("entregables.html")
-    assert release_url in _read("confianza.html")
+def test_download_page_links_to_the_versioned_release_and_stable_assets() -> None:
+    release_url = "https://github.com/686f6c61/Hermes-Research-PRISMA/releases/tag/v0.6.0"
+    asset_base = (
+        "https://github.com/686f6c61/Hermes-Research-PRISMA/"
+        "releases/download/v0.6.0/hermes-research-pack-v0.6.0.zip"
+    )
+    page = _read("descarga.html")
+    assert release_url in page
+    assert asset_base in page
+    assert f"{asset_base}.sha256" in page
+    for name in ("index.html", "instalacion.html", "entregables.html", "confianza.html"):
+        assert 'href="/descarga.html"' in _read(name)
 
 
 def test_every_public_page_displays_the_current_version_in_header_and_footer() -> None:
     for name in (
         "index.html",
         "instalacion.html",
+        "descarga.html",
         "metodologia.html",
         "entregables.html",
         "atlas-estructural.html",
@@ -84,8 +115,8 @@ def test_every_public_page_displays_the_current_version_in_header_and_footer() -
         page = _read(name)
         header = page.split('<header class="site-header">', 1)[1].split("</header>", 1)[0]
         footer = page.split('<footer class="site-footer">', 1)[1].split("</footer>", 1)[0]
-        assert "0.5.1" in header
-        assert "0.5.1" in footer
+        assert "0.6.0" in header
+        assert "0.6.0" in footer
 
 
 def test_methodology_and_delivery_pages_explain_the_new_contracts() -> None:
@@ -96,6 +127,8 @@ def test_methodology_and_delivery_pages_explain_the_new_contracts() -> None:
         "Cinco contratos",
         "Seis perfiles",
         "Una cita no basta",
+        "El corpus no vota",
+        "Entran pocas figuras",
         "Autonomous",
         "Adjudicated",
     ):
@@ -106,6 +139,10 @@ def test_methodology_and_delivery_pages_explain_the_new_contracts() -> None:
         "index.html",
         "deliverables-manifest.json",
         "claim-evidence-ledger.csv",
+        "claim-position-matrix.csv",
+        "reading-priority.csv",
+        "figures/gallery.html",
+        "artifact-lineage.json",
         "Un manuscrito no es un PASS",
     ):
         assert expected in delivery
@@ -115,6 +152,7 @@ def test_public_footers_only_link_the_requested_social_profile() -> None:
     for name in (
         "index.html",
         "instalacion.html",
+        "descarga.html",
         "metodologia.html",
         "entregables.html",
         "atlas-estructural.html",
@@ -130,6 +168,7 @@ def test_social_cards_are_current_page_specific_and_release_ready() -> None:
     cards = {
         "index.html": "hermes-prisma-og.png",
         "instalacion.html": "hermes-prisma-og.png",
+        "descarga.html": "hermes-prisma-og.png",
         "metodologia.html": "hermes-methodology-og.png",
         "entregables.html": "hermes-deliverables-og.png",
         "confianza.html": "hermes-trust-og.png",
@@ -137,7 +176,7 @@ def test_social_cards_are_current_page_specific_and_release_ready() -> None:
 
     for page_name, image_name in cards.items():
         page = _read(page_name)
-        expected_cache_key = "20260801-051"
+        expected_cache_key = "20260802-060"
         assert f"/assets/images/{image_name}?v={expected_cache_key}" in page
         image = LANDING / "assets" / "images" / image_name
         payload = image.read_bytes()
@@ -178,7 +217,8 @@ def test_installation_maps_third_party_services_without_making_nan_mandatory() -
         "Sin cobro por token",
         "modelos del clúster sin tope de uso",
         "no es un requisito del producto",
-        "OpenAlex, Crossref, OpenAIRE, Europe PMC y arXiv",
+        "Crossref, OpenAIRE, Europe PMC y arXiv",
+        "OpenAlex",
         "Scopus, Web of Science, Embase e IEEE Xplore",
         "PsycINFO, CINAHL, Cochrane, ACM Digital Library, ERIC",
         "Docling + Poppler",
@@ -211,7 +251,7 @@ def test_faq_covers_cost_local_multimodal_models_and_scientific_boundaries() -> 
     assert "Crear cuenta en NaN.builders" in page
 
 
-def test_trust_page_explains_every_v050_control_boundary() -> None:
+def test_trust_page_explains_current_control_boundaries() -> None:
     page = _read("confianza.html")
     for expected in (
         "waiting_for_researcher",
@@ -220,6 +260,8 @@ def test_trust_page_explains_every_v050_control_boundary() -> None:
         "Watchdog estricto",
         "Gold operacional",
         "Procedencia de modelos",
+        "Recuperar contexto no significa heredar conclusiones.",
+        "Código en solo lectura",
         "Scopus, Web of Science, Embase e IEEE Xplore",
         "QUÉ SIGUE SIENDO HUMANO",
         "no envía el artículo a la revista",
@@ -227,10 +269,46 @@ def test_trust_page_explains_every_v050_control_boundary() -> None:
         assert expected in page
 
 
+def test_v060_intelligence_boundaries_are_explained_across_the_site() -> None:
+    home = _read("index.html")
+    installation = _read("instalacion.html")
+    faq = _read("faq.html")
+
+    for expected in (
+        "Lo establecido",
+        "Señal condicionada",
+        "Desacuerdo real",
+        "Pregunta abierta",
+        "claim-position-matrix.csv",
+        "reading-priority.csv",
+        "research-memory.json",
+        "paper-code-audit.json",
+    ):
+        assert expected in home
+
+    for expected in (
+        "ANÁLISIS 0.6.0",
+        "intelligence",
+        "memory",
+        "code-audit",
+        "actualiza atlas, galería, manifiesto e integridad",
+    ):
+        assert expected in installation
+
+    for expected in (
+        "¿La prioridad de lectura cambia qué estudios se incluyen?",
+        "¿La memoria reutiliza decisiones de revisiones anteriores?",
+        "¿La auditoría de código ejecuta repositorios de terceros?",
+        "¿Por qué el manuscrito limita el número de figuras?",
+    ):
+        assert expected in faq
+
+
 def test_contact_requires_four_interactions_and_is_not_static_plaintext() -> None:
     public_pages = (
         "index.html",
         "instalacion.html",
+        "descarga.html",
         "metodologia.html",
         "entregables.html",
         "atlas-estructural.html",
@@ -249,7 +327,7 @@ def test_contact_requires_four_interactions_and_is_not_static_plaintext() -> Non
         assert "data-contact-gate" in page
         assert "data-contact-trigger" in page
         assert "<small>4 pasos</small>" in page
-        assert "/script.js?v=20260801-051" in page
+        assert "/script.js?v=20260802-060" in page
 
     styles = _read("styles.css")
     assert ".contact-gate {" in styles

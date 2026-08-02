@@ -139,12 +139,22 @@ def resolve_env_value(review_dir: pathlib.Path, *keys: str) -> str:
         env_value = os.environ.get(key, "").strip()
         if env_value:
             return env_value
-    candidate_env_files = [
-        review_dir / ".env",
-        review_dir.parent / ".env",
-        HERMES_HOME / ".env",
-    ]
+    candidate_env_files: list[pathlib.Path] = []
+    candidate_env_files.extend(parent / ".env" for parent in review_dir.resolve().parents[:4])
+    candidate_env_files.extend(
+        [
+            review_dir / ".env",
+            HERMES_HOME / ".env",
+            HERMES_HOME.parent / ".env",
+            HERMES_HOME.parent.parent / ".env",
+        ]
+    )
+    seen: set[pathlib.Path] = set()
     for env_file in candidate_env_files:
+        normalized = env_file.resolve()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
         values = load_env_file(env_file)
         for key in keys:
             value = values.get(key, "").strip()
@@ -253,24 +263,24 @@ def extract_verdict(text: str) -> str:
             return match.group(1)
         return "unresolved"
 
-    patterns = [
-        r"(?im)^\s*(?:[-*]\s*)?veredicto(?:\s+final)?\s*:\s*(.+)$",
-        r"(?im)^\s*(?:[-*]\s*)?decision\s*:\s*(.+)$",
-        r"(?im)^\s*(?:[-*]\s*)?recommendation\s*:\s*(.+)$",
-    ]
     saw_labeled_verdict = False
-    for pattern in patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            saw_labeled_verdict = True
-            normalized_matches = [normalize_candidate(match) for match in matches]
-            valid_matches = [match for match in normalized_matches if match != "unresolved"]
-            if len(set(valid_matches)) > 1:
-                return "unresolved"
-            for match in reversed(matches):
-                normalized = normalize_candidate(match)
-                if normalized != "unresolved":
-                    return normalized
+    labeled_candidates: list[str] = []
+    for line in text.splitlines():
+        cleaned_line = clean(line)
+        match = re.match(
+            r"^(?:-\s*)?(?:veredicto(?:\s+final)?|decision|recommendation)\s*:\s*(.+)$",
+            cleaned_line,
+        )
+        if not match:
+            continue
+        saw_labeled_verdict = True
+        normalized = normalize_candidate(match.group(1))
+        if normalized != "unresolved":
+            labeled_candidates.append(normalized)
+    if len(set(labeled_candidates)) > 1:
+        return "unresolved"
+    if labeled_candidates:
+        return labeled_candidates[-1]
     if saw_labeled_verdict:
         return "unresolved"
 
@@ -426,6 +436,11 @@ def build_review_packet(manuscript: str, mode: str = "standard") -> str:
                     index += 1
                 table_lines = lines[start:index]
                 compacted.extend(table_lines[:max_lines])
+                if len(table_lines) > max_lines:
+                    compacted.append(
+                        f"[Tabla compactada para revisión: {len(table_lines) - max_lines} "
+                        "filas adicionales disponibles en el manuscrito final.]"
+                    )
                 continue
             compacted.append(lines[index])
             index += 1
@@ -438,7 +453,56 @@ def build_review_packet(manuscript: str, mode: str = "standard") -> str:
         last_break = max(clipped.rfind("\n\n"), clipped.rfind("\n- "), clipped.rfind("\n|"))
         if last_break > budget * 0.6:
             clipped = clipped[:last_break].rstrip()
-        return clipped
+        lines = clipped.splitlines()
+        table_start = len(lines)
+        while table_start and lines[table_start - 1].lstrip().startswith("|"):
+            table_start -= 1
+        if 0 < len(lines) - table_start < 3:
+            lines = lines[:table_start]
+            if lines and re.match(r"^Tabla\b", lines[-1].strip(), flags=re.IGNORECASE):
+                lines.pop()
+        clipped = "\n".join(lines).rstrip()
+        return (
+            clipped
+            + "\n\n[Sección compactada para revisión: el contenido restante está disponible "
+            "en el manuscrito final y no debe interpretarse como ausente.]"
+        )
+
+    def priority_table_blocks(block: str) -> list[str]:
+        patterns = (
+            "fronteras de dominancia",
+            "matriz de toma de posición",
+            "contrato comparativo",
+            "modelo de aportación original",
+        )
+        lines = block.splitlines()
+        extracts: list[str] = []
+        index = 0
+        while index < len(lines):
+            caption = lines[index].strip()
+            if not (
+                caption.lower().startswith("tabla")
+                and any(pattern in caption.lower() for pattern in patterns)
+            ):
+                index += 1
+                continue
+            end = index + 1
+            while end < len(lines) and not lines[end].lstrip().startswith("|"):
+                if lines[end].strip():
+                    break
+                end += 1
+            table_end = end
+            while (
+                table_end < len(lines)
+                and lines[table_end].lstrip().startswith("|")
+            ):
+                table_end += 1
+            if table_end - end >= 3:
+                extracts.append(
+                    "\n".join([lines[index], *lines[end:table_end]]).strip()
+                )
+            index = max(table_end, index + 1)
+        return extracts
 
     parts = re.split(r"(?m)^# ", text)
     kept = []
@@ -449,18 +513,13 @@ def build_review_packet(manuscript: str, mode: str = "standard") -> str:
         heading = chunk.splitlines()[0].strip().lower()
         if (
             heading.startswith("# corpus final incluido")
+            or heading.startswith("# anexo a")
             or heading.startswith("# anexos de datos y trazabilidad")
             or heading.startswith("# referencias")
         ):
             continue
         kept.append(chunk.strip())
-    packet = "\n\n".join(kept)
-    if packet != text:
-        packet += (
-            "\n\n## Nota para revisión editorial\n"
-            "El manuscrito completo dispone además de un apéndice analítico por estudio y anexos CSV de trazabilidad. "
-            "Esa capa documental existe para auditoría y replicación, pero se omite en este paquete de revisión para centrar la evaluación en la publicabilidad del artículo principal.\n"
-        )
+    omitted_sections = "\n\n".join(kept) != text
 
     def collapse_images(block: str) -> str:
         lines = block.splitlines()
@@ -482,9 +541,23 @@ def build_review_packet(manuscript: str, mode: str = "standard") -> str:
         lines = chunk.splitlines()
         heading_line = lines[0].strip()
         body = collapse_images("\n".join(lines[1:]).strip())
+        priority_tables = priority_table_blocks(body)
         body = compact_markdown_tables(body)
         body = clip_block(body, section_char_budget(heading_line))
+        for table in priority_tables:
+            if table.splitlines()[0] not in body:
+                body += (
+                    "\n\n### Extracto prioritario conservado para revisión\n\n"
+                    + compact_markdown_tables(table, max_lines=16)
+                )
         review_sections.append("\n\n".join(part for part in [heading_line, body] if part))
+    if omitted_sections:
+        review_sections.append(
+            "## Nota para revisión editorial\n\n"
+            "El manuscrito completo dispone además de un apéndice analítico por estudio y anexos CSV de trazabilidad. "
+            "Esa capa documental existe para auditoría y replicación, pero se omite en este paquete de revisión "
+            "para centrar la evaluación en la publicabilidad del artículo principal."
+        )
     return "\n\n".join(review_sections)
 
 
@@ -504,6 +577,24 @@ def compact_references(references: str, limit: int = 200) -> str:
             *kept,
             "",
             f"_Se omiten {omitted} referencias en este paquete breve; la bibliografía completa existe en el manuscrito y en `references.generated.md`._",
+        ]
+    )
+
+
+def complete_reference_identity_index(references: str) -> str:
+    """Expose every complete reference so reviewers never infer from a truncated sample."""
+    entries = [line.strip() for line in references.splitlines() if line.strip().startswith("- ")]
+    return "\n".join(
+        [
+            "## Índice bibliográfico completo",
+            "",
+            (
+                "Este índice reproduce todas las entradas completas del manuscrito. Úsalo para "
+                "comprobar autoría, año, título, fuente e identificador; no infieras ausencias "
+                "ni truncamientos desde la muestra anterior."
+            ),
+            "",
+            *entries,
         ]
     )
 
@@ -528,6 +619,8 @@ def summarize_references(references: str, sample_size: int = 10) -> str:
             "- Muestra breve de entradas para control contextual del revisor:",
             "",
             *sample,
+            "",
+            complete_reference_identity_index(references),
         ]
     )
 
@@ -551,6 +644,8 @@ def compact_references_for_apa_review(references: str, sample_size: int = 80) ->
             "- Usa esta bibliografía de contraste para detectar errores sistemáticos de estilo o trazabilidad; no marques una referencia como ausente si aparece aquí.",
             "",
             *sample,
+            "",
+            complete_reference_identity_index(references),
         ]
     )
 
@@ -616,13 +711,23 @@ def build_prompt(
         if apa_intensive
         else "No conviertas la revisión en una auditoría bibliográfica exhaustiva: prioriza problemas materiales del manuscrito y usa el resumen bibliográfico solo como contraste contextual."
     )
+    if reviewer_id.endswith("_b"):
+        length_rule = (
+            "Longitud objetivo: entre 700 y 1100 palabras. Máximo absoluto: 1200 palabras. "
+            "Usa como máximo tres viñetas breves por sección y termina siempre con `## Dictamen final`."
+        )
+    else:
+        length_rule = (
+            "Longitud objetivo: entre 900 y 1400 palabras. Máximo absoluto: 1500 palabras. "
+            "Sé preciso, no exhaustivo, y termina siempre con `## Dictamen final`."
+        )
     return f"""Actúa como {role} de una revista científica internacional revisando un manuscrito de revisión sistemática.
 
 Tu evaluación debe ser independiente y no asumir la opinión de otros revisores.
 Idioma de salida: español de España.
 Norma lingüística: RAE.
 {priority_note}
-Longitud objetivo de tu dictamen: entre 900 y 1600 palabras. Sé preciso, no exhaustivo.
+{length_rule}
 
 	Contexto editorial importante:
 		- La fecha efectiva de esta revisión es {today}. No trates la literatura de 2026 como futurista o hipotética.
@@ -630,10 +735,10 @@ Longitud objetivo de tu dictamen: entre 900 y 1600 palabras. Sé preciso, no exh
 			- {supplement_note}
 			- {bibliography_note}
 			- Los marcadores `[Sección compactada para revisión: ...]` o `[Tabla compactada para revisión: ...]` pertenecen solo a este paquete compacto de dictamen y NO aparecen como contenido omitido en el PDF/Markdown final. No los marques como problema del manuscrito ni como falta de trazabilidad; evalúa únicamente el contenido visible y los artefactos declarados.
-			- El bloque de referencias incluido en este prompt puede estar resumido para ahorrar contexto. No declares que faltan referencias completas solo porque el paquete breve no muestre toda `references.generated.md`; usa la auditoría determinista como fuente principal para errores bibliográficos y marca ausencia solo si el manuscrito final o la auditoría dicen que falta.
+			- El bloque de referencias incluye una muestra de entradas completas y un índice exhaustivo de identidades bibliográficas. Usa la muestra para revisar el formato y el índice para comprobar presencia. No declares una referencia ausente si su primer autor y año aparecen en ese índice.
 			- Si una figura aparece resumida como marcador textual con ruta local, debes asumir que el activo visual existe y evaluar su papel científico, no marcarlo como ausente por no ver la imagen binaria en el prompt.
 	- No declares una cita como "sin referencia" si existe una entrada bibliográfica compatible por apellido principal, inicial o variante de desambiguación. Marca el problema solo cuando la ausencia sea inequívoca.
-	- Antes de afirmar que falta una referencia, busca explícitamente el apellido principal en la bibliografía incluida al final del manuscrito. Si la referencia aparece, no la marques como ausente.
+	- Antes de afirmar que falta una referencia, busca explícitamente el apellido principal y el año en el índice completo de identidades bibliográficas. Si aparecen, no la marques como ausente.
 	- En APA 7, las citas parentéticas estándar usan apellido(s) y año; no exijas iniciales en la cita en texto salvo que exista una colisión real que requiera desambiguación.
 	- Si el manuscrito explica explícitamente que el corpus incluido de la revisión sistemática coincide con el corpus analizado en profundidad, no lo trates como defecto metodológico automático; evalúa si la justificación está clara y auditada.
 	- Las tablas en Markdown forman parte del manuscrito recibido. No asumas que están truncadas o ausentes salvo que el contenido visible esté realmente incompleto.
@@ -717,7 +822,18 @@ def review_max_tokens_for_model(model: str) -> int:
 
 
 def review_attempts_for_model(model: str) -> int:
+    lowered = (model or "").strip().lower()
+    if "mimo" in lowered or "qwen" in lowered:
+        return 2
     return 1
+
+
+def apply_optional_reasoning_effort(payload: dict[str, object]) -> dict[str, object]:
+    """Apply the operator's reasoning policy when the provider supports it."""
+    reasoning_effort = os.environ.get("HERMES_REASONING_EFFORT", "").strip().lower()
+    if reasoning_effort in {"none", "minimal", "low", "medium", "high"}:
+        payload["reasoning_effort"] = reasoning_effort
+    return payload
 
 
 @contextmanager
@@ -795,6 +911,7 @@ def call_openai_compatible_chat(
         "max_tokens": adaptive_max_tokens(model, max_tokens),
         "stream": False,
     }
+    apply_optional_reasoning_effort(payload)
     normalized_base = base_url.strip().lower()
     is_local = normalized_base.startswith("http://127.0.0.1") or normalized_base.startswith("http://localhost")
     headers = {
@@ -1094,11 +1211,19 @@ def main() -> int:
             model_succeeded = False
             for attempt_number in range(1, max_attempts + 1):
                 try:
+                    attempt_prompt = prompt
+                    if attempt_number > 1:
+                        attempt_prompt += (
+                            "\n\nREGLA ABSOLUTA PARA ESTE SEGUNDO INTENTO: entrega un dictamen completo de "
+                            "700-900 palabras, con todas las secciones solicitadas y no más de tres viñetas "
+                            "por sección. No repitas el manuscrito ni la bibliografía. Finaliza necesariamente "
+                            "con `## Dictamen final`."
+                        )
                     response_text, effective_model = call_openai_compatible_chat(
                         base_url,
                         api_key,
                         candidate_model,
-                        prompt,
+                        attempt_prompt,
                         timeout=timeout,
                         max_tokens=max_tokens,
                         review_dir=review_dir,
@@ -1149,6 +1274,8 @@ def main() -> int:
                         "timed out" in message
                         or "timeout" in message
                         or "connection reset" in message
+                        or "empty response" in message
+                        or "reasoning without final content" in message
                         or "returned error: 429" in message
                         or "http 429" in message
                     )
